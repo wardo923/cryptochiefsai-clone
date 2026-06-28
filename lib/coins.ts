@@ -44,6 +44,7 @@ export const COINS: Coin[] = [
 // Major index ETFs and large-cap stocks (priced via Yahoo Finance, no key).
 // For stocks the `id` is the ticker itself.
 export const STOCKS: Coin[] = [
+  { id: "SPX", symbol: "SPX", name: "S&P 500 Index", kind: "stock" },
   { id: "SPY", symbol: "SPY", name: "S&P 500 ETF", kind: "stock" },
   { id: "QQQ", symbol: "QQQ", name: "Nasdaq 100 ETF", kind: "stock" },
   { id: "IWM", symbol: "IWM", name: "Russell 2000 ETF", kind: "stock" },

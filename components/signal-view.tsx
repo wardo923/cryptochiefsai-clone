@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import useSWR from "swr"
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -17,6 +17,8 @@ import type { TradeSignal } from "@/lib/signal"
 import type { IndicatorSnapshot } from "@/lib/indicators"
 import { formatPrice, formatPct } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { AlertButton } from "@/components/alert-button"
+import { BacktestPanel } from "@/components/backtest-panel"
 
 type SignalResponse = {
   coin: { id: string; symbol: string; name: string }
@@ -32,101 +34,59 @@ const directionStyles: Record<TradeSignal["direction"], { badge: string; icon: t
   NEUTRAL: { badge: "bg-muted text-muted-foreground border-border", icon: Minus, label: "Neutral" },
 }
 
-export function SignalPanel({ coin }: { coin: MarketRow | null }) {
-  const [loading, setLoading] = useState(false)
-  const [data, setData] = useState<SignalResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [forCoinId, setForCoinId] = useState<string | null>(null)
-
-  const stale = data && coin && forCoinId !== coin.id
-
-  async function generate() {
-    if (!coin) return
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/signal", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ coinId: coin.id }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || "Failed to generate signal")
-      }
-      const json = (await res.json()) as SignalResponse
-      setData(json)
-      setForCoinId(coin.id)
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setLoading(false)
-    }
+async function postSignal(assetId: string): Promise<SignalResponse> {
+  const res = await fetch("/api/signal", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ coinId: assetId }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || "Failed to generate signal")
   }
+  return res.json()
+}
 
-  if (!coin) {
-    return (
-      <div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border p-8 text-center">
-        <Crosshair className="size-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground text-balance">
-          Select a market from the list to generate a trade signal.
-        </p>
-      </div>
-    )
-  }
+export function SignalView({ assetId, symbol, name }: { assetId: string; symbol: string; name: string }) {
+  const { data, error, isLoading } = useSWR(["signal", assetId], () => postSignal(assetId), {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  })
 
-  const showResult = data && !stale
+  const coinForBacktest = {
+    id: assetId,
+    symbol,
+    name,
+    kind: "crypto",
+    price: 0,
+    change24h: 0,
+    change7d: null,
+    volume24h: 0,
+    marketCap: 0,
+    sparkline: [],
+  } as MarketRow
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-lg bg-secondary text-sm font-semibold">
-            {coin.symbol.slice(0, 4)}
+    <div className="flex flex-col gap-4">
+      <div className="rounded-xl border border-border bg-card p-5">
+        {isLoading && <SignalSkeleton />}
+
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <TriangleAlert className="size-4 shrink-0" />
+            {(error as Error).message}
           </div>
-          <div>
-            <h2 className="text-base font-semibold leading-tight">{coin.name}</h2>
-            <p className="text-sm text-muted-foreground">
-              {coin.symbol} · {formatPrice(coin.price)}{" "}
-              <span className={cn(coin.change24h >= 0 ? "text-chart-3" : "text-destructive")}>
-                {formatPct(coin.change24h)}
-              </span>
-            </p>
+        )}
+
+        {data && (
+          <div className="flex flex-col gap-5">
+            <SignalResult data={data} />
+            <AlertButton assetId={assetId} symbol={symbol} />
           </div>
-        </div>
-        <button
-          onClick={generate}
-          disabled={loading}
-          className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
-          {loading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-          {showResult ? "Regenerate" : "Generate signal"}
-        </button>
+        )}
       </div>
 
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <TriangleAlert className="size-4 shrink-0" />
-          {error}
-        </div>
-      )}
-
-      {stale && (
-        <p className="text-xs text-muted-foreground">
-          Showing the previous signal. Click Regenerate for {coin.symbol}.
-        </p>
-      )}
-
-      {loading && !data && <SignalSkeleton />}
-
-      {showResult && <SignalResult data={data} />}
-
-      {!showResult && !loading && !error && (
-        <p className="text-sm text-muted-foreground text-pretty">
-          Pulls live 4h candles, computes RSI, MACD, EMAs, Bollinger Bands and ATR, then has the model reason over them
-          to produce a structured trade idea.
-        </p>
-      )}
+      <BacktestPanel coin={coinForBacktest} />
     </div>
   )
 }
@@ -138,7 +98,12 @@ function SignalResult({ data }: { data: SignalResponse }) {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
-        <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-semibold", dir.badge)}>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-semibold",
+            dir.badge,
+          )}
+        >
           <DirIcon className="size-4" />
           {dir.label}
         </span>
@@ -155,7 +120,11 @@ function SignalResult({ data }: { data: SignalResponse }) {
       <p className="text-sm leading-relaxed text-pretty">{signal.summary}</p>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Entry zone" value={`${formatPrice(signal.entry.low)} – ${formatPrice(signal.entry.high)}`} icon={Crosshair} />
+        <Stat
+          label="Entry zone"
+          value={`${formatPrice(signal.entry.low)} – ${formatPrice(signal.entry.high)}`}
+          icon={Crosshair}
+        />
         <Stat label="Stop loss" value={formatPrice(signal.stopLoss)} icon={ShieldAlert} tone="danger" />
         <Stat label="Primary target" value={formatPrice(signal.targets[0]?.price)} icon={Target} tone="success" />
         <Stat label="Risk / reward" value={`${signal.riskReward.toFixed(2)}R`} icon={Sparkles} />
