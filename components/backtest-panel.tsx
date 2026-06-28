@@ -4,6 +4,7 @@ import { useState } from "react"
 import { BarChart3, Loader2, TrendingUp, TrendingDown, Info } from "lucide-react"
 import type { MarketRow } from "@/lib/market"
 import type { BacktestResult } from "@/lib/backtest"
+import { TIMEFRAMES, DEFAULT_TIMEFRAME, type Timeframe } from "@/lib/timeframe"
 import { cn } from "@/lib/utils"
 
 function EquityCurve({ data }: { data: number[] }) {
@@ -82,7 +83,13 @@ function Stat({
   )
 }
 
-export function BacktestPanel({ coin }: { coin: MarketRow | null }) {
+export function BacktestPanel({
+  coin,
+  timeframe = DEFAULT_TIMEFRAME,
+}: {
+  coin: MarketRow | null
+  timeframe?: Timeframe
+}) {
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -96,7 +103,7 @@ export function BacktestPanel({ coin }: { coin: MarketRow | null }) {
       const res = await fetch("/api/backtest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coinId: coin.id }),
+        body: JSON.stringify({ coinId: coin.id, timeframe }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? "Failed to run backtest")
@@ -113,7 +120,11 @@ export function BacktestPanel({ coin }: { coin: MarketRow | null }) {
       <div className="flex items-center gap-2">
         <BarChart3 className="size-4 text-primary" />
         <h2 className="text-sm font-semibold">Strategy backtest</h2>
-        {coin && <span className="ml-auto text-xs text-muted-foreground">{coin.symbol} · 90d / 4h candles</span>}
+        {coin && (
+          <span className="ml-auto text-xs text-muted-foreground">
+            {coin.symbol} · {TIMEFRAMES[timeframe].label} / {TIMEFRAMES[timeframe].bar} candles
+          </span>
+        )}
       </div>
 
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">

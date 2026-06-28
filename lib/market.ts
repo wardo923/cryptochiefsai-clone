@@ -1,5 +1,6 @@
 import type { Candle } from "./indicators"
 import { COIN_IDS, STOCKS, STOCK_SYMBOLS, ASSET_BY_ID } from "./coins"
+import { TIMEFRAMES, type Timeframe } from "./timeframe"
 
 const CG = "https://api.coingecko.com/api/v3"
 
@@ -23,11 +24,18 @@ function yahooSymbol(id: string): string {
   return YF_SYMBOL[id.toUpperCase()] ?? id.toUpperCase()
 }
 
-// Fetch daily OHLC candles for a US stock/ETF/index from Yahoo between two dates.
-async function getYahooDaily(symbol: string, fromMs: number, toMs: number, revalidate = 300): Promise<Candle[]> {
+// Fetch OHLC candles for a US stock/ETF/index from Yahoo between two dates at
+// the given interval (e.g. "1d" daily, "60m" hourly).
+async function getYahooDaily(
+  symbol: string,
+  fromMs: number,
+  toMs: number,
+  revalidate = 300,
+  interval = "1d",
+): Promise<Candle[]> {
   const p1 = Math.floor(fromMs / 1000)
   const p2 = Math.floor(toMs / 1000)
-  const url = `${YF}/${encodeURIComponent(yahooSymbol(symbol))}?period1=${p1}&period2=${p2}&interval=1d`
+  const url = `${YF}/${encodeURIComponent(yahooSymbol(symbol))}?period1=${p1}&period2=${p2}&interval=${interval}`
   const res = await fetch(url, { headers: YF_HEADERS, next: { revalidate } })
   if (!res.ok) throw new Error(`Yahoo failed: ${res.status}`)
   const json = (await res.json()) as any
@@ -55,6 +63,22 @@ async function getStockChart(symbol: string, days: number, revalidate = 300): Pr
 // Fetch stock candles for an exact time window (used by the verifier).
 export async function getStockRangeCandles(symbol: string, fromMs: number, toMs: number): Promise<Candle[]> {
   return getYahooDaily(symbol, fromMs, toMs, 3600)
+}
+
+// Unified candle fetch for a given analysis timeframe. Drives both signal
+// generation and backtests so the tested data matches the displayed data.
+// Crypto uses CoinGecko hourly closes bucketed to the timeframe's bar size;
+// stocks use Yahoo at the matching interval.
+export async function getSignalCandles(id: string, tf: Timeframe): Promise<Candle[]> {
+  const cfg = TIMEFRAMES[tf]
+  if (isStock(id)) {
+    if (cfg.stockInterval === "60m") {
+      const now = Date.now()
+      return getYahooDaily(id, now - cfg.stockDays * DAY_MS, now, 300, "60m")
+    }
+    return getStockChart(id, cfg.stockDays, 300)
+  }
+  return getHistoryCandles(id, cfg.cryptoDays, cfg.cryptoBucketHours)
 }
 
 // Build a market-table row for one stock from ~6 weeks of daily candles.

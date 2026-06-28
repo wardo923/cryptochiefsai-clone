@@ -1,6 +1,7 @@
 import type { Candle } from "./indicators"
 import { buildSnapshot } from "./indicators"
 import type { TradeSignal } from "./signal"
+import { TIMEFRAMES, type Timeframe } from "./timeframe"
 
 // A deterministic, rule-based trade plan derived purely from indicators.
 // No AI involved — this is the logic the backtester replays over history,
@@ -125,8 +126,9 @@ export function ruleSignal(candles: Candle[]): RuleSignal {
 // Map the deterministic rule signal into the same TradeSignal shape the AI
 // returns. This powers the free, no-billing fallback when the AI Gateway is
 // unavailable, so the UI renders identically either way.
-export function ruleSignalToTradeSignal(candles: Candle[]): TradeSignal {
+export function ruleSignalToTradeSignal(candles: Candle[], tf: Timeframe = "swing"): TradeSignal {
   const r = ruleSignal(candles)
+  const cfg = TIMEFRAMES[tf]
   // Build a small entry zone around the current price (±0.2%).
   const band = r.entry * 0.002
   const low = Math.min(r.entry - band, r.entry + band)
@@ -141,7 +143,7 @@ export function ruleSignalToTradeSignal(candles: Candle[]): TradeSignal {
   return {
     direction: r.direction,
     confidence: r.confidence,
-    timeframe: "Swing (2-7 days)",
+    timeframe: cfg.hold,
     entry: { low, high },
     stopLoss: r.stopLoss,
     targets:
@@ -156,9 +158,9 @@ export function ruleSignalToTradeSignal(candles: Candle[]): TradeSignal {
     reasoning: r.reasons.length ? r.reasons : ["No single indicator showed strong conviction."],
     invalidation:
       r.direction === "LONG"
-        ? "A 4h close below the stop-loss invalidates the long."
+        ? `A ${cfg.bar} close below the stop-loss invalidates the long.`
         : r.direction === "SHORT"
-          ? "A 4h close above the stop-loss invalidates the short."
+          ? `A ${cfg.bar} close above the stop-loss invalidates the short.`
           : "A decisive break of the recent range would create a directional bias.",
   }
 }

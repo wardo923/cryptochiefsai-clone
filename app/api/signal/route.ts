@@ -1,9 +1,10 @@
 import { generateText, Output } from "ai"
-import { getCandles } from "@/lib/market"
+import { getSignalCandles } from "@/lib/market"
 import { buildSnapshot } from "@/lib/indicators"
 import { COIN_BY_ID } from "@/lib/coins"
 import { signalSchema } from "@/lib/signal"
 import { ruleSignalToTradeSignal } from "@/lib/strategy"
+import { TIMEFRAMES, isTimeframe, DEFAULT_TIMEFRAME } from "@/lib/timeframe"
 
 export const maxDuration = 30
 
@@ -14,13 +15,16 @@ function fmt(n: number | null | undefined) {
 
 export async function POST(req: Request) {
   try {
-    const { coinId } = (await req.json()) as { coinId?: string }
+    const body = (await req.json()) as { coinId?: string; timeframe?: string }
+    const { coinId } = body
     if (!coinId || !COIN_BY_ID[coinId]) {
       return Response.json({ error: "Unknown coin" }, { status: 400 })
     }
     const coin = COIN_BY_ID[coinId]
+    const timeframe = isTimeframe(body.timeframe) ? body.timeframe : DEFAULT_TIMEFRAME
+    const tfCfg = TIMEFRAMES[timeframe]
 
-    const candles = await getCandles(coinId, 14)
+    const candles = await getSignalCandles(coinId, timeframe)
     if (candles.length < 30) {
       return Response.json({ error: "Not enough market data" }, { status: 422 })
     }
@@ -54,8 +58,8 @@ export async function POST(req: Request) {
         model: "openai/gpt-5.4-mini",
         experimental_output: Output.object({ schema: signalSchema }),
         system: [
-          "You are a disciplined crypto technical analyst producing a single actionable swing-trade signal.",
-          "You are given pre-computed technical indicators from 4h candles. Base your call strictly on this data.",
+          `You are a disciplined technical analyst producing a single actionable ${tfCfg.label.toLowerCase()} signal with a ${tfCfg.hold} hold horizon.`,
+          `You are given pre-computed technical indicators from ${tfCfg.bar} candles. Base your call strictly on this data.`,
           "Rules:",
           "- Anchor entry zones, stop-loss and targets to the provided price, ATR, swing levels, EMAs and Bollinger bands. Numbers must be realistic relative to current price.",
           "- Size the stop using ATR (typically 1-2x ATR from entry) and place it beyond a logical level.",
@@ -70,7 +74,7 @@ export async function POST(req: Request) {
     } catch (aiErr) {
       const m = (aiErr as Error).message || ""
       console.log("[v0] AI unavailable, using indicator fallback:", m)
-      signal = ruleSignalToTradeSignal(candles)
+      signal = ruleSignalToTradeSignal(candles, timeframe)
       mode = "indicator"
     }
 
@@ -79,6 +83,7 @@ export async function POST(req: Request) {
       indicators: snap,
       signal,
       mode,
+      timeframe,
       generatedAt: new Date().toISOString(),
     })
   } catch (err) {

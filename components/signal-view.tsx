@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import useSWR from "swr"
 import {
   ArrowDownRight,
@@ -19,6 +20,7 @@ import { formatPrice, formatPct } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { AlertButton } from "@/components/alert-button"
 import { BacktestPanel } from "@/components/backtest-panel"
+import { TIMEFRAMES, DEFAULT_TIMEFRAME, type Timeframe } from "@/lib/timeframe"
 
 type SignalResponse = {
   coin: { id: string; symbol: string; name: string }
@@ -34,11 +36,11 @@ const directionStyles: Record<TradeSignal["direction"], { badge: string; icon: t
   NEUTRAL: { badge: "bg-muted text-muted-foreground border-border", icon: Minus, label: "Neutral" },
 }
 
-async function postSignal(assetId: string): Promise<SignalResponse> {
+async function postSignal(assetId: string, timeframe: Timeframe): Promise<SignalResponse> {
   const res = await fetch("/api/signal", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ coinId: assetId }),
+    body: JSON.stringify({ coinId: assetId, timeframe }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -48,7 +50,8 @@ async function postSignal(assetId: string): Promise<SignalResponse> {
 }
 
 export function SignalView({ assetId, symbol, name }: { assetId: string; symbol: string; name: string }) {
-  const { data, error, isLoading } = useSWR(["signal", assetId], () => postSignal(assetId), {
+  const [timeframe, setTimeframe] = useState<Timeframe>(DEFAULT_TIMEFRAME)
+  const { data, error, isLoading } = useSWR(["signal", assetId, timeframe], () => postSignal(assetId, timeframe), {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   })
@@ -68,6 +71,25 @@ export function SignalView({ assetId, symbol, name }: { assetId: string; symbol:
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+        {(Object.keys(TIMEFRAMES) as Timeframe[]).map((tf) => (
+          <button
+            key={tf}
+            onClick={() => setTimeframe(tf)}
+            aria-pressed={timeframe === tf}
+            className={cn(
+              "flex h-9 flex-1 flex-col items-center justify-center rounded-md text-xs font-medium transition-colors",
+              timeframe === tf
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <span>{TIMEFRAMES[tf].label}</span>
+            <span className="text-[10px] font-normal opacity-80">{TIMEFRAMES[tf].bar}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="rounded-xl border border-border bg-card p-5">
         {isLoading && <SignalSkeleton />}
 
@@ -86,7 +108,7 @@ export function SignalView({ assetId, symbol, name }: { assetId: string; symbol:
         )}
       </div>
 
-      <BacktestPanel coin={coinForBacktest} />
+      <BacktestPanel coin={coinForBacktest} timeframe={timeframe} />
     </div>
   )
 }
