@@ -28,8 +28,9 @@ export async function POST(req: Request) {
     for (const sig of parsed) {
       const label = `${sig.symbol ?? "?"} ${sig.direction ?? ""}`.trim()
 
-      if (!sig.symbol || sig.timestamp == null || sig.entryLow == null || sig.tps.length === 0) {
-        skippedReasons.push({ signal: label, reasons: sig.issues })
+      const hasStop = sig.stop != null || sig.stopBufferPct != null
+      if (!sig.symbol || !sig.direction || sig.timestamp == null || sig.entryLow == null || !hasStop) {
+        skippedReasons.push({ signal: label, reasons: sig.issues.length ? sig.issues : ["incomplete signal"] })
         continue
       }
 

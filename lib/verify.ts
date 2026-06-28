@@ -52,7 +52,7 @@ export function verifyOne(input: ResolveInput): { trade: VerifiedTrade | null; r
   if (!signal.direction) reasons.push("missing direction")
   if (signal.timestamp == null) reasons.push("missing timestamp")
   if (signal.entryLow == null) reasons.push("missing entry")
-  if (signal.tps.length === 0) reasons.push("missing take-profit")
+  if (signal.stop == null && signal.stopBufferPct == null) reasons.push("missing stop")
   if (candles.length < 2) reasons.push("no price history for that window")
   if (reasons.length) return { trade: null, reasons }
 
@@ -69,10 +69,21 @@ export function verifyOne(input: ResolveInput): { trade: VerifiedTrade | null; r
     assumptions.push(`stop assumed at ${pct}% (${signal.stopBufferPct != null ? "stated buffer" : "default"})`)
   }
 
-  // TP1 = nearest take-profit in trade direction
-  const tp1 = dir === "LONG" ? Math.min(...signal.tps) : Math.max(...signal.tps)
   const risk = Math.abs(entry - stop)
   if (risk <= 0) return { trade: null, reasons: ["entry equals stop"] }
+
+  // TP1 = nearest stated take-profit. Crypto Chiefs cards usually omit fixed
+  // TPs and exit on "4h acceptance", so when none is stated we use a disclosed
+  // implied target at 2R (their typical risk:reward framing).
+  const IMPLIED_RR = 2
+  let tp1: number
+  if (signal.tps.length > 0) {
+    tp1 = dir === "LONG" ? Math.min(...signal.tps) : Math.max(...signal.tps)
+  } else {
+    tp1 = dir === "LONG" ? entry + risk * IMPLIED_RR : entry - risk * IMPLIED_RR
+    assumptions.push(`no stated TP — implied target at ${IMPLIED_RR}R`)
+  }
+  if (signal.directionInferred) assumptions.push("direction inferred from stop placement")
 
   // Walk candles intrabar. Conservative: if both stop and tp hit in same bar, stop first.
   let touchedOutcome: VerifiedTrade["touchedOutcome"] = "open"
