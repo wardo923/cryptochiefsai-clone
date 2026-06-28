@@ -6,6 +6,7 @@ import { Search, RefreshCw, Activity, Hexagon } from "lucide-react"
 import type { MarketRow } from "@/lib/market"
 import { MarketTable } from "@/components/market-table"
 import { SignalPanel } from "@/components/signal-panel"
+import { BacktestPanel } from "@/components/backtest-panel"
 import { formatPct } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -93,8 +94,9 @@ export function Portal() {
           )}
         </section>
 
-        <section className="lg:sticky lg:top-20 lg:self-start">
+        <section className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
           <SignalPanel coin={selected} />
+          <BacktestPanel coin={selected} />
         </section>
       </div>
 

@@ -54,3 +54,36 @@ export async function getCandles(id: string, days = 14): Promise<Candle[]> {
   const data = (await res.json()) as number[][]
   return data.map(([t, o, h, l, c]) => ({ t, o, h, l, c }))
 }
+
+// Fetch a long price history for backtesting and aggregate it into OHLC candles.
+// The free OHLC endpoint only returns coarse 4-day candles for long windows, so
+// we pull hourly closes from market_chart (2-90 days => hourly) and bucket them
+// into `bucketHours` candles, computing real open/high/low/close per bucket.
+export async function getHistoryCandles(id: string, days = 90, bucketHours = 4): Promise<Candle[]> {
+  const url = `${CG}/coins/${id}/market_chart?vs_currency=usd&days=${days}`
+  const res = await fetch(url, {
+    headers: { accept: "application/json" },
+    next: { revalidate: 1800 },
+  })
+  if (!res.ok) throw new Error(`CoinGecko market_chart failed: ${res.status}`)
+  const data = (await res.json()) as { prices: [number, number][] }
+  const prices = data.prices ?? []
+  if (prices.length === 0) return []
+
+  const bucketMs = bucketHours * 60 * 60 * 1000
+  const buckets = new Map<number, { t: number; o: number; h: number; l: number; c: number }>()
+
+  for (const [ts, price] of prices) {
+    const key = Math.floor(ts / bucketMs) * bucketMs
+    const existing = buckets.get(key)
+    if (!existing) {
+      buckets.set(key, { t: key, o: price, h: price, l: price, c: price })
+    } else {
+      existing.h = Math.max(existing.h, price)
+      existing.l = Math.min(existing.l, price)
+      existing.c = price
+    }
+  }
+
+  return Array.from(buckets.values()).sort((a, b) => a.t - b.t)
+}
