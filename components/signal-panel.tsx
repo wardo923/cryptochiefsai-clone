@@ -69,7 +69,7 @@ export function SignalPanel({ coin }: { coin: MarketRow | null }) {
       <div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border p-8 text-center">
         <Crosshair className="size-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground text-balance">
-          Select a market from the list to generate an AI trade signal.
+          Select a market from the list to generate a trade signal.
         </p>
       </div>
     )
@@ -192,7 +192,7 @@ function SignalResult({ data }: { data: SignalResponse }) {
       <IndicatorGrid indicators={indicators} />
 
       <p className="text-xs text-muted-foreground">
-        {data.mode === "indicator" ? "Indicator engine" : "AI analysis"} · Generated{" "}
+        {data.mode === "indicator" ? "Indicator engine" : "Engine analysis"} · Generated{" "}
         {new Date(data.generatedAt).toLocaleString()} · Educational analysis, not financial advice.
       </p>
     </div>

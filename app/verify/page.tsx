@@ -3,9 +3,9 @@ import { ArrowLeft, ShieldCheck } from "lucide-react"
 import { SignalVerifier } from "@/components/signal-verifier"
 
 export const metadata = {
-  title: "Signal Verifier — SignalForge AI",
+  title: "Signal Verifier — Signal Engine 2",
   description:
-    "Replay any channel's posted crypto signals against real historical price to measure their true win rate and expectancy.",
+    "Replay any channel's posted signals against real historical price to measure their true win rate and expectancy.",
 }
 
 export default function VerifyPage() {

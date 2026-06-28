@@ -10,9 +10,9 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'SignalForge AI — AI Crypto Signals Portal',
+  title: 'Signal Engine 2 — Market Signals Portal',
   description:
-    'AI-driven crypto trade signals built from live market data and technical indicators. Real-time long and short ideas with entries, targets, stop-loss and reasoning.',
+    'Trade signals built from live market data and technical indicators. Real-time long and short ideas with entries, targets, stop-loss and reasoning.',
   generator: 'v0.app',
   icons: {
     icon: [

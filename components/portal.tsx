@@ -50,8 +50,8 @@ export function Portal() {
             <Hexagon className="size-5" />
           </div>
           <div className="mr-auto">
-            <h1 className="text-sm font-semibold leading-tight sm:text-base">SignalForge AI</h1>
-            <p className="text-xs text-muted-foreground">Indicator + AI signals · crypto & stocks</p>
+            <h1 className="text-sm font-semibold leading-tight sm:text-base">Signal Engine 2</h1>
+            <p className="text-xs text-muted-foreground">Technical signals · all markets</p>
           </div>
           <Link
             href="/verify"
@@ -128,8 +128,7 @@ export function Portal() {
       </div>
 
       <footer className="mt-auto border-t border-border px-4 py-4 text-center text-xs text-muted-foreground sm:px-6">
-        Signals are generated from live technical indicators and AI reasoning for educational purposes only. Not
-        financial advice.
+        Signals are generated from live technical indicators for educational purposes only. Not financial advice.
       </footer>
     </div>
   )
