@@ -14,6 +14,9 @@ export type VerifiedTrade = {
   // Honest closed-trade result (stop-first, fees included)
   rMultiple: number
   honestOutcome: "win" | "loss" | "open"
+  // Assumption-free: directional % move at fixed time horizons after entry.
+  // Positive = favorable for the trade direction. null = not enough history.
+  horizonReturns: Record<string, number | null>
   assumptions: string[]
 }
 
@@ -31,9 +34,18 @@ export type VerifyResult = {
   profitFactor: number
   avgWinR: number
   avgLossR: number
+  // Assumption-free horizon stats keyed by label (e.g. "1d", "3d", "5d").
+  horizons: { label: string; avgReturnPct: number; winRate: number; sample: number }[]
   trades: VerifiedTrade[]
   feePct: number
 }
+
+// Time horizons for the assumption-free mark-to-market metric.
+export const HORIZONS: { label: string; ms: number }[] = [
+  { label: "1d", ms: 24 * 60 * 60 * 1000 },
+  { label: "3d", ms: 3 * 24 * 60 * 60 * 1000 },
+  { label: "5d", ms: 5 * 24 * 60 * 60 * 1000 },
+]
 
 const FEE_PCT = 0.1 // round-trip cost assumption
 const DEFAULT_STOP_PCT = 5 // when only "5% buffer" or nothing is given
@@ -119,6 +131,21 @@ export function verifyOne(input: ResolveInput): { trade: VerifiedTrade | null; r
   // touch metric uses the same scan but ignores the closed break above
   const touchedTp1 = touchedOutcome === "win"
 
+  // Assumption-free horizon returns: directional % move from entry to the close
+  // nearest each horizon, regardless of stop/target. Needs the signal timestamp.
+  const horizonReturns: Record<string, number | null> = {}
+  const t0 = signal.timestamp as number
+  for (const h of HORIZONS) {
+    const target = t0 + h.ms
+    const bar = [...candles].reverse().find((c) => c.t <= target)
+    if (!bar || bar.t < t0 || candles[candles.length - 1].t < target) {
+      horizonReturns[h.label] = null
+    } else {
+      const move = dir === "LONG" ? (bar.c - entry) / entry : (entry - bar.c) / entry
+      horizonReturns[h.label] = Number((move * 100).toFixed(2))
+    }
+  }
+
   // Honest R-multiple. If never resolved, mark-to-last-close.
   let rMultiple: number
   if (honestExit != null) {
@@ -143,6 +170,7 @@ export function verifyOne(input: ResolveInput): { trade: VerifiedTrade | null; r
       touchedOutcome,
       rMultiple: Number(rMultiple.toFixed(3)),
       honestOutcome,
+      horizonReturns,
       assumptions,
     },
     reasons: [],
@@ -167,6 +195,20 @@ export function aggregate(
   const grossLoss = Math.abs(losses.reduce((a, t) => a + t.rMultiple, 0))
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 999 : 0
 
+  const horizons = HORIZONS.map((h) => {
+    const vals = trades
+      .map((t) => t.horizonReturns[h.label])
+      .filter((v): v is number => v != null)
+    const avg = vals.length ? vals.reduce((a, v) => a + v, 0) / vals.length : 0
+    const winners = vals.filter((v) => v > 0).length
+    return {
+      label: h.label,
+      avgReturnPct: Number(avg.toFixed(2)),
+      winRate: vals.length ? Number(((winners / vals.length) * 100).toFixed(1)) : 0,
+      sample: vals.length,
+    }
+  })
+
   return {
     scored: trades.length,
     skipped: skippedReasons.length,
@@ -179,6 +221,7 @@ export function aggregate(
     profitFactor: profitFactor === 999 ? 999 : Number(profitFactor.toFixed(2)),
     avgWinR: wins.length ? Number((grossWin / wins.length).toFixed(2)) : 0,
     avgLossR: losses.length ? Number((-grossLoss / losses.length).toFixed(2)) : 0,
+    horizons,
     trades,
     feePct: FEE_PCT,
   }

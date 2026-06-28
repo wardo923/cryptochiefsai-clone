@@ -139,6 +139,36 @@ export function SignalVerifier() {
             </span>
           </div>
 
+          {result.horizons.some((h) => h.sample > 0) && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="mb-1 text-sm font-semibold">Assumption-free outcome</div>
+              <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+                Directional price move from entry after a fixed time, ignoring any target or stop. This needs no
+                guess about how they exit, so it&apos;s the most objective read on whether the calls moved the right
+                way.
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {result.horizons.map((h) => (
+                  <div key={h.label} className="rounded-lg border border-border bg-background p-3">
+                    <div className="text-xs text-muted-foreground">After {h.label}</div>
+                    <div
+                      className={cn(
+                        "mt-1 text-xl font-semibold tabular-nums",
+                        h.avgReturnPct > 0 ? "text-chart-3" : h.avgReturnPct < 0 ? "text-destructive" : "",
+                      )}
+                    >
+                      {h.avgReturnPct > 0 ? "+" : ""}
+                      {h.avgReturnPct}%
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {h.winRate}% moved up &middot; n={h.sample}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {result.trades.length > 0 && (
             <div className="overflow-x-auto rounded-xl border border-border">
               <table className="w-full text-left text-xs">
