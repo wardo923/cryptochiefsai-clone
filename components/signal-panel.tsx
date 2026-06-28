@@ -22,6 +22,7 @@ type SignalResponse = {
   coin: { id: string; symbol: string; name: string }
   indicators: IndicatorSnapshot
   signal: TradeSignal
+  mode?: "ai" | "indicator"
   generatedAt: string
 }
 
@@ -191,7 +192,8 @@ function SignalResult({ data }: { data: SignalResponse }) {
       <IndicatorGrid indicators={indicators} />
 
       <p className="text-xs text-muted-foreground">
-        Generated {new Date(data.generatedAt).toLocaleString()} · Educational analysis, not financial advice.
+        {data.mode === "indicator" ? "Indicator engine" : "AI analysis"} · Generated{" "}
+        {new Date(data.generatedAt).toLocaleString()} · Educational analysis, not financial advice.
       </p>
     </div>
   )

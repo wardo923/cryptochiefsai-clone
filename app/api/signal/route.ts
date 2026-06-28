@@ -3,6 +3,7 @@ import { getCandles } from "@/lib/market"
 import { buildSnapshot } from "@/lib/indicators"
 import { COIN_BY_ID } from "@/lib/coins"
 import { signalSchema } from "@/lib/signal"
+import { ruleSignalToTradeSignal } from "@/lib/strategy"
 
 export const maxDuration = 30
 
@@ -43,41 +44,46 @@ export async function POST(req: Request) {
       `Recent swing low (60 bars): $${fmt(snap.recentLow)}`,
     ].join("\n")
 
-    const { experimental_output } = await generateText({
-      model: "openai/gpt-5.4-mini",
-      experimental_output: Output.object({ schema: signalSchema }),
-      system: [
-        "You are a disciplined crypto technical analyst producing a single actionable swing-trade signal.",
-        "You are given pre-computed technical indicators from 4h candles. Base your call strictly on this data.",
-        "Rules:",
-        "- Anchor entry zones, stop-loss and targets to the provided price, ATR, swing levels, EMAs and Bollinger bands. Numbers must be realistic relative to current price.",
-        "- Size the stop using ATR (typically 1-2x ATR from entry) and place it beyond a logical level.",
-        "- Targets must respect the direction (LONG targets above entry, SHORT targets below) and be ordered.",
-        "- If signals conflict or are weak, return NEUTRAL with low confidence rather than forcing a trade.",
-        "- riskReward should reflect the primary (first) target versus the stop.",
-        "- This is educational analysis, not financial advice.",
-      ].join("\n"),
-      prompt: `Produce a trade signal for the following market snapshot:\n\n${indicatorBlock}`,
-    })
+    // Try AI-written analysis first; if the AI Gateway is unavailable (no card/
+    // key on the account), fall back to the deterministic indicator engine so
+    // the app stays fully functional with zero billing.
+    let signal
+    let mode: "ai" | "indicator" = "ai"
+    try {
+      const { experimental_output } = await generateText({
+        model: "openai/gpt-5.4-mini",
+        experimental_output: Output.object({ schema: signalSchema }),
+        system: [
+          "You are a disciplined crypto technical analyst producing a single actionable swing-trade signal.",
+          "You are given pre-computed technical indicators from 4h candles. Base your call strictly on this data.",
+          "Rules:",
+          "- Anchor entry zones, stop-loss and targets to the provided price, ATR, swing levels, EMAs and Bollinger bands. Numbers must be realistic relative to current price.",
+          "- Size the stop using ATR (typically 1-2x ATR from entry) and place it beyond a logical level.",
+          "- Targets must respect the direction (LONG targets above entry, SHORT targets below) and be ordered.",
+          "- If signals conflict or are weak, return NEUTRAL with low confidence rather than forcing a trade.",
+          "- riskReward should reflect the primary (first) target versus the stop.",
+          "- This is educational analysis, not financial advice.",
+        ].join("\n"),
+        prompt: `Produce a trade signal for the following market snapshot:\n\n${indicatorBlock}`,
+      })
+      signal = experimental_output
+    } catch (aiErr) {
+      const m = (aiErr as Error).message || ""
+      console.log("[v0] AI unavailable, using indicator fallback:", m)
+      signal = ruleSignalToTradeSignal(candles)
+      mode = "indicator"
+    }
 
     return Response.json({
       coin,
       indicators: snap,
-      signal: experimental_output,
+      signal,
+      mode,
       generatedAt: new Date().toISOString(),
     })
   } catch (err) {
     const message = (err as Error).message || ""
     console.log("[v0] signal route error:", message)
-    if (message.includes("credit card") || message.includes("402") || message.includes("403")) {
-      return Response.json(
-        {
-          error:
-            "AI Gateway needs a valid credit card on file to unlock free credits. Add one in your Vercel AI settings, then try again.",
-        },
-        { status: 402 },
-      )
-    }
     return Response.json({ error: "Failed to generate signal" }, { status: 500 })
   }
 }

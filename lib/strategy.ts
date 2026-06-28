@@ -1,5 +1,6 @@
 import type { Candle } from "./indicators"
 import { buildSnapshot } from "./indicators"
+import type { TradeSignal } from "./signal"
 
 // A deterministic, rule-based trade plan derived purely from indicators.
 // No AI involved — this is the logic the backtester replays over history,
@@ -118,5 +119,46 @@ export function ruleSignal(candles: Candle[]): RuleSignal {
     target,
     riskReward,
     reasons,
+  }
+}
+
+// Map the deterministic rule signal into the same TradeSignal shape the AI
+// returns. This powers the free, no-billing fallback when the AI Gateway is
+// unavailable, so the UI renders identically either way.
+export function ruleSignalToTradeSignal(candles: Candle[]): TradeSignal {
+  const r = ruleSignal(candles)
+  // Build a small entry zone around the current price (±0.2%).
+  const band = r.entry * 0.002
+  const low = Math.min(r.entry - band, r.entry + band)
+  const high = Math.max(r.entry - band, r.entry + band)
+  const mid = (r.entry + r.target) / 2
+
+  const summary =
+    r.direction === "NEUTRAL"
+      ? "Indicators are mixed; no high-conviction trade right now. Stand aside or wait for confirmation."
+      : `Rule-based ${r.direction} setup with ${r.confidence}% conviction, targeting ${r.riskReward.toFixed(1)}R from an ATR-sized stop.`
+
+  return {
+    direction: r.direction,
+    confidence: r.confidence,
+    timeframe: "Swing (2-7 days)",
+    entry: { low, high },
+    stopLoss: r.stopLoss,
+    targets:
+      r.direction === "NEUTRAL"
+        ? [{ price: r.target, label: "TP1" }]
+        : [
+            { price: mid, label: "TP1" },
+            { price: r.target, label: "TP2" },
+          ],
+    riskReward: Number(r.riskReward.toFixed(2)),
+    summary,
+    reasoning: r.reasons.length ? r.reasons : ["No single indicator showed strong conviction."],
+    invalidation:
+      r.direction === "LONG"
+        ? "A 4h close below the stop-loss invalidates the long."
+        : r.direction === "SHORT"
+          ? "A 4h close above the stop-loss invalidates the short."
+          : "A decisive break of the recent range would create a directional bias.",
   }
 }
