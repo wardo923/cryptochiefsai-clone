@@ -1,5 +1,5 @@
 import { parseExport } from "@/lib/parse-signals"
-import { getRangeCandles, resolveSymbol } from "@/lib/market"
+import { getBinanceCandles } from "@/lib/market"
 import { verifyOne, aggregate, type VerifiedTrade } from "@/lib/verify"
 
 export const maxDuration = 60
@@ -34,19 +34,17 @@ export async function POST(req: Request) {
         continue
       }
 
-      const id = await resolveSymbol(sig.symbol)
-      if (!id) {
-        skippedReasons.push({ signal: label, reasons: ["couldn't map ticker to a coin"] })
-        continue
-      }
-
-      const fromSec = Math.floor(sig.timestamp / 1000)
-      const toSec = fromSec + HOLD_DAYS * 24 * 60 * 60
+      const fromMs = sig.timestamp
+      const toMs = fromMs + HOLD_DAYS * 24 * 60 * 60 * 1000
       let candles
       try {
-        candles = await getRangeCandles(id, fromSec, toSec, 4)
+        candles = await getBinanceCandles(sig.symbol, fromMs, toMs, "4h")
       } catch {
-        skippedReasons.push({ signal: label, reasons: ["price history unavailable for that date"] })
+        skippedReasons.push({ signal: label, reasons: ["price history unavailable for that ticker/date"] })
+        continue
+      }
+      if (candles.length < 2) {
+        skippedReasons.push({ signal: label, reasons: ["no price history for that window"] })
         continue
       }
 

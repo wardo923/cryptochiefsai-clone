@@ -88,6 +88,45 @@ export async function getHistoryCandles(id: string, days = 90, bucketHours = 4):
   return Array.from(buckets.values()).sort((a, b) => a.t - b.t)
 }
 
+// Binance public market-data host (no key, generous limits, real OHLC).
+// Signals are quoted as TICKER_USDT, which maps 1:1 to Binance symbols, so this
+// is far more reliable than CoinGecko's rate-limited historical endpoints.
+const BINANCE = "https://data-api.binance.vision/api/v3"
+
+// Fetch real OHLC candles for an exact window from Binance klines.
+export async function getBinanceCandles(
+  ticker: string,
+  fromMs: number,
+  toMs: number,
+  interval = "4h",
+): Promise<Candle[]> {
+  const symbol = `${ticker.trim().toUpperCase()}USDT`
+  const url = `${BINANCE}/klines?symbol=${symbol}&interval=${interval}&startTime=${fromMs}&endTime=${toMs}&limit=1000`
+  const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate: 3600 } })
+  if (!res.ok) throw new Error(`Binance klines failed: ${res.status}`)
+  const rows = (await res.json()) as (string | number)[][]
+  return rows.map((r) => ({
+    t: Number(r[0]),
+    o: Number(r[1]),
+    h: Number(r[2]),
+    l: Number(r[3]),
+    c: Number(r[4]),
+  }))
+}
+
+// Fetch with retry/backoff so CoinGecko's free-tier rate limit (HTTP 429)
+// doesn't silently drop requests when we verify many signals in a row.
+async function fetchWithRetry(url: string, revalidate: number, tries = 4): Promise<Response> {
+  let delay = 1500
+  for (let attempt = 0; attempt < tries; attempt++) {
+    const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate } })
+    if (res.status !== 429) return res
+    await new Promise((r) => setTimeout(r, delay))
+    delay *= 2
+  }
+  return fetch(url, { headers: { accept: "application/json" }, next: { revalidate } })
+}
+
 // Fetch price history for an EXACT time window (used to verify a dated signal)
 // and aggregate into OHLC candles. CoinGecko auto-picks hourly granularity for
 // spans under ~90 days, which is what we want for replaying a single trade.
@@ -98,10 +137,7 @@ export async function getRangeCandles(
   bucketHours = 4,
 ): Promise<Candle[]> {
   const url = `${CG}/coins/${id}/market_chart/range?vs_currency=usd&from=${fromSec}&to=${toSec}`
-  const res = await fetch(url, {
-    headers: { accept: "application/json" },
-    next: { revalidate: 3600 },
-  })
+  const res = await fetchWithRetry(url, 3600)
   if (!res.ok) throw new Error(`CoinGecko range failed: ${res.status}`)
   const data = (await res.json()) as { prices: [number, number][] }
   const prices = data.prices ?? []
@@ -123,19 +159,49 @@ export async function getRangeCandles(
 }
 
 // Resolve a ticker symbol (e.g. "SOL", "RLC") to a CoinGecko coin id.
-// Uses the search endpoint (ranked by market cap) and caches results.
+// Known tickers map directly so we never hit the rate-limited search API for
+// them; anything else falls back to search. Disambiguates symbols that several
+// coins share (e.g. GMT, GRT) to the intended market.
+const TICKER_MAP: Record<string, string> = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  BNB: "binancecoin",
+  SOL: "solana",
+  XRP: "ripple",
+  ADA: "cardano",
+  AVAX: "avalanche-2",
+  LINK: "chainlink",
+  DOT: "polkadot",
+  MATIC: "matic-network",
+  NEAR: "near",
+  ATOM: "cosmos",
+  LTC: "litecoin",
+  UNI: "uniswap",
+  DOGE: "dogecoin",
+  GRT: "the-graph",
+  RLC: "iexec-rlc",
+  EGLD: "elrond-erd-2",
+  GMT: "stepn",
+  QNT: "quant-network",
+  QTUM: "qtum",
+  STG: "stargate-finance",
+  APT: "aptos",
+  ARB: "arbitrum",
+  OP: "optimism",
+  FIL: "filecoin",
+  ICP: "internet-computer",
+  INJ: "injective-protocol",
+}
 const symbolCache = new Map<string, string | null>()
 
 export async function resolveSymbol(symbol: string): Promise<string | null> {
   const key = symbol.trim().toUpperCase()
   if (!key) return null
+  if (TICKER_MAP[key]) return TICKER_MAP[key]
   if (symbolCache.has(key)) return symbolCache.get(key) ?? null
 
   try {
-    const res = await fetch(`${CG}/search?query=${encodeURIComponent(key)}`, {
-      headers: { accept: "application/json" },
-      next: { revalidate: 86400 },
-    })
+    const res = await fetchWithRetry(`${CG}/search?query=${encodeURIComponent(key)}`, 86400)
     if (!res.ok) throw new Error(`search ${res.status}`)
     const data = (await res.json()) as {
       coins: { id: string; symbol: string; market_cap_rank: number | null }[]
