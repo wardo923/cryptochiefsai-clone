@@ -50,7 +50,7 @@ export function Portal() {
             <Hexagon className="size-5" />
           </div>
           <div className="mr-auto">
-            <h1 className="text-sm font-semibold leading-tight sm:text-base">Signal Engine 2</h1>
+            <h1 className="text-sm font-semibold leading-tight sm:text-base">Sightline</h1>
             <p className="text-xs text-muted-foreground">Technical signals · all markets</p>
           </div>
           <Link

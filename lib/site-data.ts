@@ -9,7 +9,7 @@ export type Review = {
 export const reviews: Review[] = [
   {
     quote:
-      "I've tried a lot of crypto tools over the years, but Crypto Chiefs AI genuinely stands out. The AI analysis is clear, timely, and actually actionable. I've been a Premium Member for over a year now, and I'm comfortably up ",
+      "I've tried a lot of trading tools over the years, but Sightline genuinely stands out. The analysis is clear, timely, and actually actionable. I've been a Premium Member for over a year now, and I'm comfortably up ",
     highlight: 'low five figures',
     quoteAfter: ' overall. Easily worth the subscription.',
     author: 'CryptoDegen0x',
@@ -20,14 +20,14 @@ export const reviews: Review[] = [
       'Straight to the point: this tool works. The trend analysis and entry signals have helped me avoid bad trades and capitalize on strong setups. I hit a ',
     highlight: '$12,000 profit',
     quoteAfter:
-      " in the last 6 months alone. If you're serious about crypto, Crypto Chiefs AI is a no-brainer.",
+      " in the last 6 months alone. If you're serious about trading, Sightline is a no-brainer.",
     author: 'CryptoMark',
     role: 'Premium Member',
   },
   {
     quote:
       'What I like most is how easy the AI insights are to understand, even during volatile markets. I have been a long-term ',
-    highlight: 'Crypto Chiefs Premium Member',
+    highlight: 'Sightline Premium Member',
     quoteAfter:
       ', and the consistency has been impressive. Steady gains, less stress, better decisions. Highly recommended.',
     author: 'Daniel K.',
@@ -35,7 +35,7 @@ export const reviews: Review[] = [
   },
   {
     quote:
-      'Crypto Chiefs AI has completely changed how I trade. Instead of guessing, I rely on data-backed AI analysis. I have personally cleared around ',
+      'Sightline has completely changed how I trade. Instead of guessing, I rely on data-backed analysis. I have personally cleared around ',
     highlight: '$18,500 in profits',
     quoteAfter:
       ' since using it. The alerts alone have paid for the membership many times over.',
@@ -44,7 +44,7 @@ export const reviews: Review[] = [
   },
   {
     quote:
-      "As someone who's been in crypto since 2017, I don't impress easily. Crypto Chiefs AI impressed me. The AI market breakdowns are accurate and timely. I've been a Premium Member for months and recently crossed ",
+      "As someone who's been trading since 2017, I don't impress easily. Sightline impressed me. The market breakdowns are accurate and timely. I've been a Premium Member for months and recently crossed ",
     highlight: 'five-figure gains',
     quoteAfter: ' again thanks to smarter entries.',
     author: 'AndreETH.',
@@ -52,16 +52,16 @@ export const reviews: Review[] = [
   },
   {
     quote:
-      'I used to overtrade and lose money. Crypto Chiefs AI helped me slow down and trade smarter. The confidence I have now is unreal. Up about ',
+      'I used to overtrade and lose money. Sightline helped me slow down and trade smarter. The confidence I have now is unreal. Up about ',
     highlight: '$9,400',
     quoteAfter:
-      ' since joining, and growing. Definitely one of the best crypto AI tools out there.',
+      ' since joining, and growing. Definitely one of the best trading tools out there.',
     author: 'Kevin S.',
     role: 'Premium Member',
   },
   {
     quote:
-      'This is not hype. Crypto Chiefs AI gives you real market intelligence, not vague predictions. I have been a Premium Member long-term, and it has helped me secure multiple profitable swings. Overall profit sits comfortably in the ',
+      'This is not hype. Sightline gives you real market intelligence, not vague predictions. I have been a Premium Member long-term, and it has helped me secure multiple profitable swings. Overall profit sits comfortably in the ',
     highlight: 'mid five figures',
     quoteAfter: '.',
     author: 'BTCmick',
@@ -69,7 +69,7 @@ export const reviews: Review[] = [
   },
   {
     quote:
-      "I'm not a full-time trader, so having AI do the heavy lifting is huge for me. Crypto Chiefs AI breaks things down in a way that's easy to follow. I've already made ",
+      "I'm not a full-time trader, so having the engine do the heavy lifting is huge for me. Sightline breaks things down in a way that's easy to follow. I've already made ",
     highlight: 'over $7,000',
     quoteAfter: ', which is incredible considering the time I save.',
     author: 'Aziz M',
@@ -77,7 +77,7 @@ export const reviews: Review[] = [
   },
   {
     quote:
-      'Crypto Chiefs AI gave me confidence to trade again after a rough year. The AI insights are surprisingly accurate, and the market sentiment analysis is my favorite feature. I have seen ',
+      'Sightline gave me confidence to trade again after a rough year. The insights are surprisingly accurate, and the market sentiment analysis is my favorite feature. I have seen ',
     highlight: 'consistent four-figure gains',
     quoteAfter: ' and feel much more in control now.',
     author: 'MoH.',
@@ -85,7 +85,7 @@ export const reviews: Review[] = [
   },
   {
     quote:
-      'As a Premium Member, I can honestly say this tool delivers. Crypto Chiefs AI helps cut through market noise and focus on high-probability trades. I recently hit my first ',
+      'As a Premium Member, I can honestly say this tool delivers. Sightline helps cut through market noise and focus on high-probability trades. I recently hit my first ',
     highlight: '$10,000+ profit milestone',
     quoteAfter: ", and I couldn't be happier.",
     author: 'Natalie B.',
@@ -96,7 +96,7 @@ export const reviews: Review[] = [
 export const faqs = [
   {
     q: 'Is this financial advice?',
-    a: 'No. Crypto Chiefs AI provides analysis tooling and trade ideas for informational purposes only. Always do your own research and manage your own risk.',
+    a: 'No. Sightline provides analysis tooling and trade ideas for informational purposes only. Always do your own research and manage your own risk.',
   },
   {
     q: 'What markets does it cover?',

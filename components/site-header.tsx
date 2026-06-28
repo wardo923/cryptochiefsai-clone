@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 import { Menu, X } from 'lucide-react'
 
 const navLinks = [
@@ -17,15 +16,10 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-        <a href="#top" className="flex items-center gap-2" aria-label="Crypto Chiefs AI home">
-          <Image
-            src="/crypto-chiefs-logo.png"
-            alt="Crypto Chiefs AI logo"
-            width={200}
-            height={44}
-            className="h-9 w-auto"
-            priority
-          />
+        <a href="#top" className="flex items-center gap-2" aria-label="Sightline home">
+          <span className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
+            Sightline
+          </span>
         </a>
 
         <nav className="hidden items-center gap-2 md:flex" aria-label="Primary">

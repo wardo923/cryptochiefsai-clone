@@ -25,7 +25,7 @@ export function ReviewsSection() {
               Reviews
             </h2>
             <p className="mt-3 text-pretty text-muted-foreground">
-              What Premium Members are saying about Crypto Chiefs AI.
+              What Premium Members are saying about Sightline.
             </p>
           </div>
           <div className="flex gap-2">

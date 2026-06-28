@@ -84,7 +84,7 @@ export function verifyOne(input: ResolveInput): { trade: VerifiedTrade | null; r
   const risk = Math.abs(entry - stop)
   if (risk <= 0) return { trade: null, reasons: ["entry equals stop"] }
 
-  // TP1 = nearest stated take-profit. Crypto Chiefs cards usually omit fixed
+  // TP1 = nearest stated take-profit. Many signal cards omit fixed
   // TPs and exit on "4h acceptance", so when none is stated we use a disclosed
   // implied target at 2R (their typical risk:reward framing).
   const IMPLIED_RR = 2

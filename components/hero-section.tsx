@@ -1,10 +1,9 @@
-import Image from 'next/image'
 import { Check, Play } from 'lucide-react'
 import { CtaButton } from '@/components/cta-button'
 
 const checklist = [
   'Real-time Ideas for Long and Short Trades',
-  'AI Analysis with Reasoning and Key Levels',
+  'Analysis with Reasoning and Key Levels',
   'Stop-loss Placement Ideas to Manage Risk',
 ]
 
@@ -22,9 +21,9 @@ export function HeroSection() {
 
       <div className="mx-auto max-w-7xl px-4 pb-16 pt-12 sm:px-6 sm:pt-16">
         <h1 className="max-w-3xl text-balance text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-          Dominate crypto with{' '}
+          Trade smarter with{' '}
           <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-            AI-driven
+            data-driven
           </span>{' '}
           Signals &amp; Analysis
         </h1>
@@ -32,13 +31,9 @@ export function HeroSection() {
         <div className="mt-10 grid gap-6 lg:grid-cols-[1.2fr_1fr]">
           {/* video / preview card */}
           <div className="relative aspect-video overflow-hidden rounded-2xl border border-border/60 bg-card">
-            <Image
-              src="/crypto-chiefs-logo.png"
-              alt="Crypto Chiefs AI"
-              width={420}
-              height={120}
-              className="absolute left-1/2 top-1/2 w-2/3 max-w-xs -translate-x-1/2 -translate-y-1/2 opacity-90"
-            />
+            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl font-bold tracking-tight text-foreground/90 sm:text-4xl">
+              Sightline
+            </span>
             <button
               type="button"
               aria-label="Play intro video"
@@ -84,8 +79,8 @@ export function HeroSection() {
             </div>
 
             <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
-              Personally trained model that reads BTC &amp; Altcoin charts in the
-              same way as Chiefra.
+              A purpose-built engine that reads charts across crypto and stocks
+              the way a seasoned trader would.
             </p>
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               Trading involves risk. This is analysis tooling, not financial

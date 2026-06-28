@@ -3,7 +3,7 @@ import { ArrowLeft, ShieldCheck } from "lucide-react"
 import { SignalVerifier } from "@/components/signal-verifier"
 
 export const metadata = {
-  title: "Signal Verifier — Signal Engine 2",
+  title: "Signal Verifier — Sightline",
   description:
     "Replay any channel's posted signals against real historical price to measure their true win rate and expectancy.",
 }

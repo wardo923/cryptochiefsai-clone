@@ -10,7 +10,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Signal Engine 2 — Market Signals Portal',
+  title: 'Sightline — Market Signals Portal',
   description:
     'Trade signals built from live market data and technical indicators. Real-time long and short ideas with entries, targets, stop-loss and reasoning.',
   generator: 'v0.app',

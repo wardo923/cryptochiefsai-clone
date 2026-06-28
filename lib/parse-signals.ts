@@ -45,7 +45,7 @@ export function parseSignalText(raw: string, timestamp: number | null): ParsedSi
   }
   if (!symbol) return null
 
-  // Direction (stated). Often absent on Crypto Chiefs cards — inferred later
+  // Direction (stated). Often absent on signal cards — inferred later
   // from stop placement relative to entry.
   let direction: ParsedSignal["direction"] = null
   let directionInferred = false
@@ -69,7 +69,7 @@ export function parseSignalText(raw: string, timestamp: number | null): ParsedSi
   }
   if (entryLow == null) issues.push("No entry price found")
 
-  // Stop-loss mode (Crypto Chiefs: Adaptive / Entry Zone Based / Liquidation Sweep)
+  // Stop-loss mode (Adaptive / Entry Zone Based / Liquidation Sweep)
   let stopMode: string | null = null
   if (/adaptive/i.test(text)) stopMode = "Adaptive"
   else if (/entry[\s-]*zone[\s-]*based/i.test(text)) stopMode = "Entry Zone Based"
@@ -98,7 +98,7 @@ export function parseSignalText(raw: string, timestamp: number | null): ParsedSi
   if (!direction) issues.push("No direction (not stated, and no stop to infer from)")
   if (stop == null && stopBufferPct == null) issues.push("No stop-loss found")
 
-  // Take-profit ladder (optional — Crypto Chiefs cards usually omit fixed TPs
+  // Take-profit ladder (optional — many signal cards omit fixed TPs
   // and exit on 4h acceptance, so a missing TP is NOT a blocker).
   const tps: number[] = []
   const tpRegex = /(?:tp\s*\d|take[\s-]*profit)[\s:$=-]*([\d.,]+)/gi
