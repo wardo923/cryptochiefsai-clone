@@ -1,8 +1,9 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import useSWR from "swr"
-import { Search, RefreshCw, Activity, Hexagon } from "lucide-react"
+import { Search, RefreshCw, Activity, Hexagon, ShieldCheck } from "lucide-react"
 import type { MarketRow } from "@/lib/market"
 import { MarketTable } from "@/components/market-table"
 import { SignalPanel } from "@/components/signal-panel"
@@ -48,6 +49,13 @@ export function Portal() {
             <h1 className="text-sm font-semibold leading-tight sm:text-base">SignalForge AI</h1>
             <p className="text-xs text-muted-foreground">Indicator + AI crypto signals</p>
           </div>
+          <Link
+            href="/verify"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ShieldCheck className="size-4" />
+            <span className="hidden sm:inline">Verify signals</span>
+          </Link>
           <button
             onClick={() => mutate()}
             className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"

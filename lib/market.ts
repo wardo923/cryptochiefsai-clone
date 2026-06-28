@@ -87,3 +87,68 @@ export async function getHistoryCandles(id: string, days = 90, bucketHours = 4):
 
   return Array.from(buckets.values()).sort((a, b) => a.t - b.t)
 }
+
+// Fetch price history for an EXACT time window (used to verify a dated signal)
+// and aggregate into OHLC candles. CoinGecko auto-picks hourly granularity for
+// spans under ~90 days, which is what we want for replaying a single trade.
+export async function getRangeCandles(
+  id: string,
+  fromSec: number,
+  toSec: number,
+  bucketHours = 4,
+): Promise<Candle[]> {
+  const url = `${CG}/coins/${id}/market_chart/range?vs_currency=usd&from=${fromSec}&to=${toSec}`
+  const res = await fetch(url, {
+    headers: { accept: "application/json" },
+    next: { revalidate: 3600 },
+  })
+  if (!res.ok) throw new Error(`CoinGecko range failed: ${res.status}`)
+  const data = (await res.json()) as { prices: [number, number][] }
+  const prices = data.prices ?? []
+  if (prices.length === 0) return []
+
+  const bucketMs = bucketHours * 60 * 60 * 1000
+  const buckets = new Map<number, { t: number; o: number; h: number; l: number; c: number }>()
+  for (const [ts, price] of prices) {
+    const key = Math.floor(ts / bucketMs) * bucketMs
+    const ex = buckets.get(key)
+    if (!ex) buckets.set(key, { t: key, o: price, h: price, l: price, c: price })
+    else {
+      ex.h = Math.max(ex.h, price)
+      ex.l = Math.min(ex.l, price)
+      ex.c = price
+    }
+  }
+  return Array.from(buckets.values()).sort((a, b) => a.t - b.t)
+}
+
+// Resolve a ticker symbol (e.g. "SOL", "RLC") to a CoinGecko coin id.
+// Uses the search endpoint (ranked by market cap) and caches results.
+const symbolCache = new Map<string, string | null>()
+
+export async function resolveSymbol(symbol: string): Promise<string | null> {
+  const key = symbol.trim().toUpperCase()
+  if (!key) return null
+  if (symbolCache.has(key)) return symbolCache.get(key) ?? null
+
+  try {
+    const res = await fetch(`${CG}/search?query=${encodeURIComponent(key)}`, {
+      headers: { accept: "application/json" },
+      next: { revalidate: 86400 },
+    })
+    if (!res.ok) throw new Error(`search ${res.status}`)
+    const data = (await res.json()) as {
+      coins: { id: string; symbol: string; market_cap_rank: number | null }[]
+    }
+    const coins = data.coins ?? []
+    const exact = coins
+      .filter((c) => c.symbol?.toUpperCase() === key)
+      .sort((a, b) => (a.market_cap_rank ?? 1e9) - (b.market_cap_rank ?? 1e9))
+    const chosen = exact[0]?.id ?? coins[0]?.id ?? null
+    symbolCache.set(key, chosen)
+    return chosen
+  } catch {
+    symbolCache.set(key, null)
+    return null
+  }
+}
