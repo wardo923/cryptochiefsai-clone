@@ -71,7 +71,7 @@ export function MarketTable({
                   {formatPct(row.change24h)}
                 </p>
                 <p className="hidden text-right text-sm text-muted-foreground tabular-nums sm:block">
-                  ${formatCompact(row.volume24h)}
+                  {row.volume24h > 0 ? `$${formatCompact(row.volume24h)}` : "—"}
                 </p>
                 <div className="hidden justify-end sm:flex">
                   <Sparkline data={row.sparkline} positive={(row.change7d ?? row.change24h) >= 0} />

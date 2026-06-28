@@ -1,3 +1,5 @@
+import { STOCK_SYMBOLS } from "./coins"
+
 export type ParsedSignal = {
   raw: string
   symbol: string | null
@@ -34,9 +36,13 @@ export function parseSignalText(raw: string, timestamp: number | null): ParsedSi
   const text = raw.replace(/\u00a0/g, " ")
   const issues: string[] = []
 
-  // Ticker: BTC_USDT, SOL/USDT, RLC_USDT, etc.
+  // Ticker: crypto pairs (BTC_USDT, SOL/USDT) or a bare known stock (SPY, QQQ).
   const tickerMatch = text.match(/\b([A-Z0-9]{2,12})[\s]*[_/-]\s*USDT?\b/i)
-  const symbol = tickerMatch ? tickerMatch[1].toUpperCase() : null
+  let symbol = tickerMatch ? tickerMatch[1].toUpperCase() : null
+  if (!symbol) {
+    const stockMatch = text.match(/\$?\b([A-Z]{1,5})\b/g)
+    symbol = stockMatch?.map((s) => s.replace(/[$\s]/g, "").toUpperCase()).find((s) => STOCK_SYMBOLS.has(s)) ?? null
+  }
   if (!symbol) return null
 
   // Direction (stated). Often absent on Crypto Chiefs cards — inferred later

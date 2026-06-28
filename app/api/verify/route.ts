@@ -1,5 +1,5 @@
 import { parseExport } from "@/lib/parse-signals"
-import { getBinanceCandles } from "@/lib/market"
+import { getBinanceCandles, getStockRangeCandles, isStock } from "@/lib/market"
 import { verifyOne, aggregate, type VerifiedTrade } from "@/lib/verify"
 
 export const maxDuration = 60
@@ -38,7 +38,10 @@ export async function POST(req: Request) {
       const toMs = fromMs + HOLD_DAYS * 24 * 60 * 60 * 1000
       let candles
       try {
-        candles = await getBinanceCandles(sig.symbol, fromMs, toMs, "4h")
+        // Stocks resolve via Yahoo (daily bars); crypto via Binance (4h bars).
+        candles = isStock(sig.symbol)
+          ? await getStockRangeCandles(sig.symbol, fromMs, toMs, "1d")
+          : await getBinanceCandles(sig.symbol, fromMs, toMs, "4h")
       } catch {
         skippedReasons.push({ signal: label, reasons: ["price history unavailable for that ticker/date"] })
         continue

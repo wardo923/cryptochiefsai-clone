@@ -22,15 +22,19 @@ export function Portal() {
   })
 
   const [query, setQuery] = useState("")
+  const [assetClass, setAssetClass] = useState<"all" | "crypto" | "stock">("all")
   const [selected, setSelected] = useState<MarketRow | null>(null)
 
   const rows = data?.markets ?? []
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) => r.name.toLowerCase().includes(q) || r.symbol.toLowerCase().includes(q))
-  }, [rows, query])
+    return rows.filter((r) => {
+      if (assetClass !== "all" && r.kind !== assetClass) return false
+      if (!q) return true
+      return r.name.toLowerCase().includes(q) || r.symbol.toLowerCase().includes(q)
+    })
+  }, [rows, query, assetClass])
 
   const movers = useMemo(() => {
     if (rows.length === 0) return null
@@ -47,7 +51,7 @@ export function Portal() {
           </div>
           <div className="mr-auto">
             <h1 className="text-sm font-semibold leading-tight sm:text-base">SignalForge AI</h1>
-            <p className="text-xs text-muted-foreground">Indicator + AI crypto signals</p>
+            <p className="text-xs text-muted-foreground">Indicator + AI signals · crypto & stocks</p>
           </div>
           <Link
             href="/verify"
@@ -78,6 +82,21 @@ export function Portal() {
                 placeholder="Search markets"
                 className="h-11 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-base outline-none transition-colors focus:border-ring sm:text-sm"
               />
+            </div>
+            <div className="flex h-11 items-center gap-1 rounded-lg border border-border bg-card p-1">
+              {(["all", "crypto", "stock"] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setAssetClass(c)}
+                  aria-pressed={assetClass === c}
+                  className={cn(
+                    "h-full rounded-md px-3 text-sm font-medium capitalize transition-colors",
+                    assetClass === c ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {c === "all" ? "All" : c === "crypto" ? "Crypto" : "Stocks"}
+                </button>
+              ))}
             </div>
             {movers && (
               <div className="flex items-center gap-2 text-xs">

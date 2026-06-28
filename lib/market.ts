@@ -1,12 +1,85 @@
 import type { Candle } from "./indicators"
-import { COIN_IDS } from "./coins"
+import { COIN_IDS, STOCKS, STOCK_SYMBOLS, ASSET_BY_ID } from "./coins"
 
 const CG = "https://api.coingecko.com/api/v3"
+
+// Stooq — free, no-key daily CSV history for US stocks/ETFs. Unlike Yahoo it
+// serves datacenter IPs reliably. US tickers use the ".us" suffix.
+const STOOQ = "https://stooq.com/q/d/l"
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export function isStock(id: string): boolean {
+  return ASSET_BY_ID[id]?.kind === "stock" || STOCK_SYMBOLS.has(id.toUpperCase())
+}
+
+function ymd(ms: number): string {
+  const d = new Date(ms)
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`
+}
+
+// Fetch daily OHLC candles for a US stock/ETF from Stooq between two dates.
+async function getStooqDaily(symbol: string, fromMs: number, toMs: number, revalidate = 300): Promise<Candle[]> {
+  const url = `${STOOQ}/?s=${symbol.toLowerCase()}.us&i=d&d1=${ymd(fromMs)}&d2=${ymd(toMs)}`
+  const res = await fetch(url, { next: { revalidate } })
+  if (!res.ok) throw new Error(`Stooq failed: ${res.status}`)
+  const csv = await res.text()
+  const lines = csv.trim().split(/\r?\n/)
+  if (lines.length < 2 || !/^date,/i.test(lines[0])) return []
+  const out: Candle[] = []
+  for (const line of lines.slice(1)) {
+    const [date, o, h, l, c] = line.split(",")
+    const t = Date.parse(date + "T00:00:00Z")
+    const nums = [o, h, l, c].map(Number)
+    if (Number.isNaN(t) || nums.some((v) => !Number.isFinite(v))) continue
+    out.push({ t, o: nums[0], h: nums[1], l: nums[2], c: nums[3] })
+  }
+  return out
+}
+
+// Fetch recent stock candles for signals: `days` of daily history up to now.
+async function getStockChart(symbol: string, days: number, revalidate = 300): Promise<Candle[]> {
+  const now = Date.now()
+  return getStooqDaily(symbol, now - days * DAY_MS, now, revalidate)
+}
+
+// Fetch stock candles for an exact time window (used by the verifier).
+export async function getStockRangeCandles(symbol: string, fromMs: number, toMs: number): Promise<Candle[]> {
+  return getStooqDaily(symbol, fromMs, toMs, 3600)
+}
+
+// Build a market-table row for one stock from ~6 weeks of daily candles.
+async function getStockMarketRow(symbol: string, name: string): Promise<MarketRow | null> {
+  try {
+    const candles = await getStockChart(symbol, 45, 60)
+    if (candles.length < 2) return null
+    const closes = candles.map((c) => c.c)
+    const price = closes[closes.length - 1]
+    const prev = closes[closes.length - 2]
+    const change24h = prev ? ((price - prev) / prev) * 100 : 0
+    const weekAgo = closes.length >= 6 ? closes[closes.length - 6] : closes[0]
+    const change7d = weekAgo ? ((price - weekAgo) / weekAgo) * 100 : null
+    return {
+      id: symbol,
+      symbol,
+      name,
+      kind: "stock" as const,
+      price,
+      change24h,
+      change7d,
+      volume24h: 0,
+      marketCap: 0,
+      sparkline: closes,
+    }
+  } catch {
+    return null
+  }
+}
 
 export type MarketRow = {
   id: string
   symbol: string
   name: string
+  kind: "crypto" | "stock"
   price: number
   change24h: number
   change7d: number | null
@@ -29,10 +102,11 @@ export async function getMarkets(): Promise<MarketRow[]> {
   if (!res.ok) throw new Error(`CoinGecko markets failed: ${res.status}`)
   const data = (await res.json()) as any[]
 
-  return data.map((c) => ({
+  const cryptoRows: MarketRow[] = data.map((c) => ({
     id: c.id,
     symbol: (c.symbol ?? "").toUpperCase(),
     name: c.name,
+    kind: "crypto" as const,
     price: c.current_price ?? 0,
     change24h: c.price_change_percentage_24h_in_currency ?? c.price_change_percentage_24h ?? 0,
     change7d: c.price_change_percentage_7d_in_currency ?? null,
@@ -40,11 +114,21 @@ export async function getMarkets(): Promise<MarketRow[]> {
     marketCap: c.market_cap ?? 0,
     sparkline: (c.sparkline_in_7d?.price ?? []) as number[],
   }))
+
+  // Stocks are priced via Yahoo in parallel; failures are dropped, not fatal.
+  const stockRows = (await Promise.all(STOCKS.map((s) => getStockMarketRow(s.symbol, s.name)))).filter(
+    (r): r is MarketRow => r !== null,
+  )
+
+  return [...cryptoRows, ...stockRows]
 }
 
 // Fetch OHLC candles for a single coin. CoinGecko returns [ts, o, h, l, c].
 // days=14 yields ~4h candles which is a good swing-trade timeframe.
 export async function getCandles(id: string, days = 14): Promise<Candle[]> {
+  // Stocks: ~6 months of daily candles (enough indicator warmup for a swing call).
+  if (isStock(id)) return getStockChart(id, "6mo", "1d", 300)
+
   const url = `${CG}/coins/${id}/ohlc?vs_currency=usd&days=${days}`
   const res = await fetch(url, {
     headers: { accept: "application/json" },
@@ -60,6 +144,9 @@ export async function getCandles(id: string, days = 14): Promise<Candle[]> {
 // we pull hourly closes from market_chart (2-90 days => hourly) and bucket them
 // into `bucketHours` candles, computing real open/high/low/close per bucket.
 export async function getHistoryCandles(id: string, days = 90, bucketHours = 4): Promise<Candle[]> {
+  // Stocks: ~2 years of daily candles for backtesting (well past EMA200 warmup).
+  if (isStock(id)) return getStockChart(id, "2y", "1d", 1800)
+
   const url = `${CG}/coins/${id}/market_chart?vs_currency=usd&days=${days}`
   const res = await fetch(url, {
     headers: { accept: "application/json" },

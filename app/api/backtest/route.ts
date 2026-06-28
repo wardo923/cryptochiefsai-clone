@@ -1,6 +1,6 @@
 import { getHistoryCandles } from "@/lib/market"
 import { backtest } from "@/lib/backtest"
-import { COINS } from "@/lib/coins"
+import { ASSET_BY_ID } from "@/lib/coins"
 
 export const maxDuration = 30
 
@@ -10,8 +10,8 @@ export async function POST(req: Request) {
     if (!coinId || typeof coinId !== "string") {
       return Response.json({ error: "coinId is required" }, { status: 400 })
     }
-    if (!COINS.some((c) => c.id === coinId)) {
-      return Response.json({ error: "Unknown coin" }, { status: 400 })
+    if (!ASSET_BY_ID[coinId]) {
+      return Response.json({ error: "Unknown asset" }, { status: 400 })
     }
 
     // 90 days of hourly data aggregated into 4h candles (~540 bars),
