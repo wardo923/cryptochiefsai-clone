@@ -35,12 +35,12 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     bar: "5m",
     // Crypto: ~30 days of real 5m candles from Binance (~8.6k bars) — a deep,
     // honest sample (hundreds of trades) that stays tractable for the per-bar
-    // backtest. Stocks stay capped by Yahoo's ~30-day 5m window.
+    // backtest. Stocks: ~90 days of 5m from Alpaca (~4.9k bars).
     cryptoDays: 30,
     cryptoBucketHours: 1,
     cryptoBinanceInterval: "5m",
     stockInterval: "5m",
-    stockDays: 30,
+    stockDays: 90,
     holdBars: 24, // ~2 hours of 5m bars
     intraday: true,
     barMinutes: 5,
@@ -54,7 +54,7 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     cryptoBucketHours: 1,
     cryptoBinanceInterval: "15m",
     stockInterval: "15m",
-    stockDays: 55,
+    stockDays: 180,
     holdBars: 16, // ~4 hours of 15m bars
     intraday: true,
     barMinutes: 15,
@@ -68,7 +68,7 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     cryptoBucketHours: 1,
     cryptoBinanceInterval: "1h",
     stockInterval: "60m",
-    stockDays: 60,
+    stockDays: 250,
     holdBars: 24,
     barMinutes: 60,
   },

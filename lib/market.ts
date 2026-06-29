@@ -17,6 +17,101 @@ export function isStock(id: string): boolean {
   return ASSET_BY_ID[id]?.kind === "stock" || STOCK_SYMBOLS.has(id.toUpperCase())
 }
 
+// ---------------------------------------------------------------------------
+// Alpaca market data (keyed) — cleaner, deeper stock OHLC than free Yahoo.
+// Free IEX feed serves years of daily bars and months of paginated intraday,
+// which is the data Yahoo cannot provide. We use it as the PRIMARY stock source
+// and fall back to Yahoo on any failure or for symbols Alpaca can't serve
+// (e.g. raw indices like SPX, which is not a tradeable equity on Alpaca).
+// ---------------------------------------------------------------------------
+const ALPACA_DATA = "https://data.alpaca.markets/v2/stocks"
+
+// Map our stock interval ids -> Alpaca timeframe strings.
+const ALPACA_TF: Record<string, string> = {
+  "1d": "1Day",
+  "60m": "1Hour",
+  "15m": "15Min",
+  "5m": "5Min",
+}
+
+// Indices have no Alpaca equity equivalent, so they stay on Yahoo.
+const ALPACA_UNSUPPORTED = new Set(["SPX"])
+
+function alpacaCreds(): { id: string; secret: string } | null {
+  const id = process.env.ALPACA_API_KEY_ID
+  const secret = process.env.ALPACA_API_SECRET_KEY
+  if (!id || !secret) return null
+  return { id, secret }
+}
+
+// Fetch OHLC candles for a US equity/ETF from Alpaca between two dates at the
+// given interval, paginating via next_page_token until the window is covered.
+async function getAlpacaBars(
+  symbol: string,
+  fromMs: number,
+  toMs: number,
+  interval = "1d",
+  revalidate = 300,
+): Promise<Candle[]> {
+  const creds = alpacaCreds()
+  if (!creds) throw new Error("Alpaca credentials missing")
+  const sym = symbol.trim().toUpperCase()
+  if (ALPACA_UNSUPPORTED.has(sym)) throw new Error(`Alpaca does not serve ${sym}`)
+  const tf = ALPACA_TF[interval] ?? "1Day"
+  const headers = { "APCA-API-KEY-ID": creds.id, "APCA-API-SECRET-KEY": creds.secret, accept: "application/json" }
+  const out: Candle[] = []
+  let pageToken: string | undefined
+  // Cap pages so a bad range can never loop forever; intraday needs more pages.
+  const maxPages = interval === "1d" ? 6 : 40
+  for (let page = 0; page < maxPages; page++) {
+    const params = new URLSearchParams({
+      timeframe: tf,
+      start: new Date(fromMs).toISOString(),
+      end: new Date(toMs).toISOString(),
+      limit: "10000",
+      adjustment: "all",
+      feed: "iex",
+    })
+    if (pageToken) params.set("page_token", pageToken)
+    const res = await fetch(`${ALPACA_DATA}/${encodeURIComponent(sym)}/bars?${params}`, {
+      headers,
+      next: { revalidate },
+    })
+    if (!res.ok) {
+      if (out.length) break // partial history is still useful
+      throw new Error(`Alpaca bars failed: ${res.status}`)
+    }
+    const json = (await res.json()) as { bars?: Record<string, number | string>[]; next_page_token?: string | null }
+    const bars = json.bars ?? []
+    for (const b of bars) {
+      out.push({ t: new Date(b.t as string).getTime(), o: +b.o, h: +b.h, l: +b.l, c: +b.c, v: +b.v })
+    }
+    if (!json.next_page_token) break
+    pageToken = json.next_page_token
+  }
+  return out
+}
+
+// Stock OHLC with Alpaca primary + Yahoo fallback. Centralizes the routing so
+// every stock path (signals, market rows, backtests) benefits from clean data.
+async function getStockBars(
+  symbol: string,
+  fromMs: number,
+  toMs: number,
+  interval = "1d",
+  revalidate = 300,
+): Promise<Candle[]> {
+  if (alpacaCreds() && !ALPACA_UNSUPPORTED.has(symbol.toUpperCase())) {
+    try {
+      const bars = await getAlpacaBars(symbol, fromMs, toMs, interval, revalidate)
+      if (bars.length >= 2) return bars
+    } catch (err) {
+      console.log("[v0] Alpaca failed, falling back to Yahoo:", (err as Error).message)
+    }
+  }
+  return getYahooDaily(symbol, fromMs, toMs, revalidate, interval)
+}
+
 // Map an asset id to its Yahoo symbol. Equities/ETFs are 1:1; indices differ
 // (e.g. SPX -> ^GSPC for the S&P 500 index).
 const YF_SYMBOL: Record<string, string> = { SPX: "^GSPC" }
@@ -58,12 +153,12 @@ async function getYahooDaily(
 // Fetch recent stock candles for signals: `days` of daily history up to now.
 async function getStockChart(symbol: string, days: number, revalidate = 300): Promise<Candle[]> {
   const now = Date.now()
-  return getYahooDaily(symbol, now - days * DAY_MS, now, revalidate)
+  return getStockBars(symbol, now - days * DAY_MS, now, "1d", revalidate)
 }
 
 // Fetch stock candles for an exact time window (used by the verifier).
 export async function getStockRangeCandles(symbol: string, fromMs: number, toMs: number): Promise<Candle[]> {
-  return getYahooDaily(symbol, fromMs, toMs, 3600)
+  return getStockBars(symbol, fromMs, toMs, "1d", 3600)
 }
 
 // Unified candle fetch for a given analysis timeframe. Drives both signal
@@ -74,10 +169,11 @@ export async function getSignalCandles(id: string, tf: Timeframe): Promise<Candl
   const cfg = TIMEFRAMES[tf]
   if (isStock(id)) {
     // Any sub-daily interval (5m/15m/60m) uses an explicit period window;
-    // daily uses the standard chart fetch.
+    // daily uses the standard chart fetch. Alpaca serves months of intraday
+    // (vs. Yahoo's ~30-day cap), so the intraday-stock lane is now testable.
     if (cfg.stockInterval !== "1d") {
       const now = Date.now()
-      return getYahooDaily(id, now - cfg.stockDays * DAY_MS, now, 120, cfg.stockInterval)
+      return getStockBars(id, now - cfg.stockDays * DAY_MS, now, cfg.stockInterval, 120)
     }
     return getStockChart(id, cfg.stockDays, 300)
   }
