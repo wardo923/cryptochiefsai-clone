@@ -81,6 +81,25 @@ export async function getSignalCandles(id: string, tf: Timeframe): Promise<Candl
     }
     return getStockChart(id, cfg.stockDays, 300)
   }
+
+  // Crypto swing/position: pull DEEP real OHLC from Binance (paginated) so the
+  // backtest has enough bars to produce a statistically meaningful trade count.
+  // CoinGecko's free tier is too shallow for this. Falls back to CoinGecko if
+  // the Binance symbol isn't listed or the request fails.
+  if (tf === "swing" || tf === "position") {
+    const ticker = ASSET_BY_ID[id]?.symbol
+    if (ticker) {
+      try {
+        const interval = tf === "position" ? "1d" : "4h"
+        const now = Date.now()
+        const fromMs = now - cfg.cryptoDays * DAY_MS
+        const deep = await getBinanceHistory(ticker, fromMs, now, interval)
+        if (deep.length >= 210) return deep
+      } catch (err) {
+        console.log("[v0] Binance deep history failed, falling back to CoinGecko:", (err as Error).message)
+      }
+    }
+  }
   return getHistoryCandles(id, cfg.cryptoDays, cfg.cryptoBucketHours)
 }
 
@@ -235,7 +254,43 @@ export async function getBinanceCandles(
     h: Number(r[2]),
     l: Number(r[3]),
     c: Number(r[4]),
+    v: Number(r[5]),
   }))
+}
+
+// Binance klines cap at 1000 rows per request, so deep history (years of 4h or
+// daily candles) must be paginated. We walk forward from `fromMs` in pages
+// until we reach `toMs` or the data runs out. Volume is included for the
+// indicator volume filter. Used for crypto swing/position backtests where the
+// CoinGecko free tier is too shallow to produce a meaningful trade count.
+export async function getBinanceHistory(
+  ticker: string,
+  fromMs: number,
+  toMs: number,
+  interval: "4h" | "1d" = "4h",
+): Promise<Candle[]> {
+  const symbol = `${ticker.trim().toUpperCase()}USDT`
+  const stepMs = interval === "1d" ? DAY_MS : 4 * 60 * 60 * 1000
+  const out: Candle[] = []
+  let cursor = fromMs
+  // Hard cap the page count so a bad range can never loop forever.
+  for (let page = 0; page < 30 && cursor < toMs; page++) {
+    const url = `${BINANCE}/klines?symbol=${symbol}&interval=${interval}&startTime=${cursor}&endTime=${toMs}&limit=1000`
+    const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate: 3600 } })
+    if (!res.ok) {
+      if (out.length) break // partial history is still useful
+      throw new Error(`Binance history failed: ${res.status}`)
+    }
+    const rows = (await res.json()) as (string | number)[][]
+    if (!rows.length) break
+    for (const r of rows) {
+      out.push({ t: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })
+    }
+    const lastOpen = Number(rows[rows.length - 1][0])
+    if (rows.length < 1000) break // reached the end of available data
+    cursor = lastOpen + stepMs // continue after the last candle
+  }
+  return out
 }
 
 // Fetch with retry/backoff so CoinGecko's free-tier rate limit (HTTP 429)

@@ -65,10 +65,12 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     label: "Swing",
     hold: "Swing (2-7 days)",
     bar: "4h",
-    cryptoDays: 90,
+    // ~2 years of 4h candles from Binance => a deep, meaningful trade sample.
+    cryptoDays: 730,
     cryptoBucketHours: 4,
     stockInterval: "1d",
-    stockDays: 400,
+    // ~8 years of daily history from Yahoo for a robust swing sample.
+    stockDays: 2920,
     holdBars: 14,
     barMinutes: 240,
   },
@@ -76,10 +78,12 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     label: "Position",
     hold: "Position (weeks)",
     bar: "daily",
-    cryptoDays: 365,
+    // ~6 years of daily candles for the long-horizon sample.
+    cryptoDays: 2190,
     cryptoBucketHours: 24,
     stockInterval: "1d",
-    stockDays: 1095,
+    // ~15 years of daily history (covers multiple market regimes).
+    stockDays: 5475,
     holdBars: 20,
     barMinutes: 1440,
   },
