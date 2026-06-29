@@ -29,7 +29,10 @@ export type BacktestResult = {
   profitFactor: number
   maxDrawdownR: number
   equityCurveR: number[] // cumulative R over closed trades
-  fees: number // round-trip fee assumption used, %
+  fees: number // commission assumption used, % per round trip
+  spreadPct: number // per-side spread crossed, % of price
+  slipPct: number // extra adverse slippage on stop-outs, % of price
+  avgCostR: number // average all-in cost per trade, in units of R
   warmup: number
   holdBars: number
 }
@@ -37,7 +40,9 @@ export type BacktestResult = {
 type BacktestOptions = {
   warmup?: number // bars needed before first signal
   holdBars?: number // max bars to hold before timeout exit
-  feePct?: number // round-trip cost as % of entry (fees + slippage)
+  feePct?: number // commission as % of entry, per round trip
+  spreadPct?: number // per-side spread crossed on each fill, % of price
+  slipPct?: number // extra adverse slippage on stop-loss fills, % of price
   cooldown?: number // bars to wait after a trade closes
   intraday?: boolean // use the intraday (VWAP/OR/RVOL) rule set
   isCrypto?: boolean // anchor sessions to UTC day (crypto) vs 09:30 ET (stocks)
@@ -51,15 +56,28 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
   // Intraday needs far less warmup (no EMA200 dependency in that rule set).
   const warmup = opts.warmup ?? (opts.intraday ? 60 : 205)
   const holdBars = opts.holdBars ?? 14
-  const feePct = opts.feePct ?? 0.1 // 0.1% round trip
   const cooldown = opts.cooldown ?? 1
 
+  // ---- REALISTIC COST MODEL ----
+  // Three components, all in % of price:
+  //  - commission (feePct): broker/exchange fee per round trip.
+  //  - spread (spreadPct): half the bid/ask spread, crossed on BOTH entry and
+  //    exit fills. Tight for liquid stocks (SPY), wider for crypto.
+  //  - stop slippage (slipPct): extra adverse fill on stop-OUTS only, because
+  //    price is moving against you (and may gap) when a stop triggers. This is
+  //    the cost backtests most often ignore and where intraday edges die.
+  const isCrypto = opts.isCrypto ?? false
+  const feePct = opts.feePct ?? (isCrypto ? 0.05 : 0.01)
+  const spreadPct = opts.spreadPct ?? (isCrypto ? 0.04 : opts.intraday ? 0.02 : 0.03)
+  const slipPct = opts.slipPct ?? (isCrypto ? 0.06 : opts.intraday ? 0.05 : 0.03)
+
   const trades: Trade[] = []
+  const costRs: number[] = []
   let i = warmup
   while (i < candles.length - 1) {
     const window = candles.slice(0, i + 1)
     const sig = opts.intraday
-      ? ruleSignal(window, { intraday: true, anchorMs: sessionAnchorMs(candles[i].t, opts.isCrypto ?? false) })
+      ? ruleSignal(window, { intraday: true, anchorMs: sessionAnchorMs(candles[i].t, isCrypto) })
       : ruleSignal(window)
 
     if (sig.direction === "NEUTRAL") {
@@ -114,10 +132,25 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
       }
     }
 
-    const gross = dir === "LONG" ? exitPrice - entry : entry - exitPrice
-    const feeCost = entry * (feePct / 100)
-    const net = gross - feeCost
+    // Apply realistic fills. You cross the spread adversely on entry AND exit;
+    // a stop-out fills even worse by `slipPct`. All costs are in price terms.
+    const halfSpread = entry * (spreadPct / 100)
+    const slip = entry * (slipPct / 100)
+    // Entry: LONG buys up at the ask, SHORT sells down at the bid.
+    const fillEntry = dir === "LONG" ? entry + halfSpread : entry - halfSpread
+    // Exit: LONG sells down at the bid, SHORT buys up at the ask...
+    let fillExit = dir === "LONG" ? exitPrice - halfSpread : exitPrice + halfSpread
+    // ...and stop-outs slip further against you.
+    if (outcome === "loss") {
+      fillExit = dir === "LONG" ? fillExit - slip : fillExit + slip
+    }
+    const gross = dir === "LONG" ? fillExit - fillEntry : fillEntry - fillExit
+    const commission = entry * (feePct / 100)
+    const net = gross - commission
     const rMultiple = net / risk
+    // Total cost vs the frictionless gross, expressed in R (diagnostic).
+    const grossNoCost = dir === "LONG" ? exitPrice - entry : entry - exitPrice
+    const costR = (grossNoCost - net) / risk
 
     trades.push({
       entryIndex: i,
@@ -132,6 +165,7 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
       outcome,
       rMultiple,
     })
+    costRs.push(costR)
 
     i = exitIndex + cooldown
   }
@@ -143,6 +177,7 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
   const winRate = trades.length ? (wins / trades.length) * 100 : 0
   const sumR = trades.reduce((a, t) => a + t.rMultiple, 0)
   const avgR = trades.length ? sumR / trades.length : 0
+  const avgCostR = costRs.length ? costRs.reduce((a, c) => a + c, 0) / costRs.length : 0
   const grossWin = trades.filter((t) => t.rMultiple > 0).reduce((a, t) => a + t.rMultiple, 0)
   const grossLoss = Math.abs(trades.filter((t) => t.rMultiple < 0).reduce((a, t) => a + t.rMultiple, 0))
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0
@@ -174,6 +209,9 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
     maxDrawdownR: Number(maxDD.toFixed(2)),
     equityCurveR: equity,
     fees: feePct,
+    spreadPct,
+    slipPct,
+    avgCostR: Number(avgCostR.toFixed(3)),
     warmup,
     holdBars,
   }

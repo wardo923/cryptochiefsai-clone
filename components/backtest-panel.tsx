@@ -128,8 +128,9 @@ export function BacktestPanel({
       </div>
 
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        Replays the exact indicator rules bar-by-bar over real history with no look-ahead, ATR stops, a 2R target and a
-        0.1% round-trip cost. These are measured results — not a promise of future performance.
+        Replays the exact indicator rules bar-by-bar over real history with no look-ahead and structure-based stops.
+        Fills are charged realistically: commission, the bid/ask spread crossed on both entry and exit, and extra
+        slippage on stop-outs. These are measured results — not a promise of future performance.
       </p>
 
       {!coin ? (
@@ -180,6 +181,12 @@ export function BacktestPanel({
               hint="gross win / loss"
             />
             <Stat label="Trades" value={`${result.trades}`} hint={`${result.timeouts} timed out`} />
+            <Stat
+              label="Cost drag"
+              value={`-${result.avgCostR}R`}
+              tone="bad"
+              hint={`spread ${result.spreadPct}% + slip`}
+            />
             <Stat label="Max drawdown" value={`${result.maxDrawdownR}R`} tone="bad" hint="peak to trough" />
             <Stat
               label="Net result"
