@@ -32,6 +32,40 @@ function emaSeries(values: number[], period: number): number[] {
   return out
 }
 
+// Index-aligned EMA series: same length as `values`, with null for the leading
+// bars before the EMA is seeded. Unlike `emaSeries`, indices line up with the
+// source array so it can be read AT a bar during a backtest.
+export function emaSeriesAligned(values: number[], period: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null)
+  if (values.length < period) return out
+  const k = 2 / (period + 1)
+  let prev = values.slice(0, period).reduce((a, b) => a + b, 0) / period
+  out[period - 1] = prev
+  for (let i = period; i < values.length; i++) {
+    prev = values[i] * k + prev * (1 - k)
+    out[i] = prev
+  }
+  return out
+}
+
+// Index-aligned ATR series (Wilder). null until the period is satisfied.
+export function atrSeries(candles: Candle[], period = 14): (number | null)[] {
+  const out: (number | null)[] = new Array(candles.length).fill(null)
+  if (candles.length < period + 1) return out
+  const trs: number[] = [0]
+  for (let i = 1; i < candles.length; i++) {
+    const prevClose = candles[i - 1].c
+    trs.push(Math.max(candles[i].h - candles[i].l, Math.abs(candles[i].h - prevClose), Math.abs(candles[i].l - prevClose)))
+  }
+  let prev = trs.slice(1, period + 1).reduce((a, b) => a + b, 0) / period
+  out[period] = prev
+  for (let i = period + 1; i < candles.length; i++) {
+    prev = (prev * (period - 1) + trs[i]) / period
+    out[i] = prev
+  }
+  return out
+}
+
 export function rsi(values: number[], period = 14): number | null {
   if (values.length < period + 1) return null
   let gains = 0
@@ -140,6 +174,113 @@ export function adx(candles: Candle[], period = 14): number | null {
     adxVal = (adxVal * (period - 1) + dx[i]) / period
   }
   return adxVal
+}
+
+// Bar-by-bar ADX series (aligned to candle indices, leading bars are null
+// until enough history exists). Used by strategies that need ADX AT a past bar
+// during a backtest, not just the latest scalar value. Returns an array the
+// same length as `candles`.
+export function adxSeries(candles: Candle[], period = 14): (number | null)[] {
+  const out: (number | null)[] = new Array(candles.length).fill(null)
+  if (candles.length < period * 2 + 1) return out
+  const plusDM: number[] = []
+  const minusDM: number[] = []
+  const trs: number[] = []
+  for (let i = 1; i < candles.length; i++) {
+    const up = candles[i].h - candles[i - 1].h
+    const down = candles[i - 1].l - candles[i].l
+    plusDM.push(up > down && up > 0 ? up : 0)
+    minusDM.push(down > up && down > 0 ? down : 0)
+    const prevClose = candles[i - 1].c
+    trs.push(Math.max(candles[i].h - candles[i].l, Math.abs(candles[i].h - prevClose), Math.abs(candles[i].l - prevClose)))
+  }
+  const smooth = (arr: number[]) => {
+    let prev = arr.slice(0, period).reduce((a, b) => a + b, 0)
+    const o = [prev]
+    for (let i = period; i < arr.length; i++) {
+      prev = prev - prev / period + arr[i]
+      o.push(prev)
+    }
+    return o
+  }
+  const trS = smooth(trs)
+  const pdmS = smooth(plusDM)
+  const mdmS = smooth(minusDM)
+  const dx: number[] = []
+  for (let i = 0; i < trS.length; i++) {
+    if (trS[i] === 0) {
+      dx.push(0)
+      continue
+    }
+    const pdi = (pdmS[i] / trS[i]) * 100
+    const mdi = (mdmS[i] / trS[i]) * 100
+    const sum = pdi + mdi
+    dx.push(sum === 0 ? 0 : (Math.abs(pdi - mdi) / sum) * 100)
+  }
+  if (dx.length < period) return out
+  // Wilder-average the DX into ADX, then map each ADX value back to its candle
+  // index. The first smoothed TR corresponds to candle index `period`, and the
+  // first ADX value needs `period` DX values, so adxStartIdx = period*2.
+  let adxVal = dx.slice(0, period).reduce((a, b) => a + b, 0) / period
+  const adxArr = [adxVal]
+  for (let i = period; i < dx.length; i++) {
+    adxVal = (adxVal * (period - 1) + dx[i]) / period
+    adxArr.push(adxVal)
+  }
+  const adxStartIdx = period * 2
+  for (let k = 0; k < adxArr.length; k++) {
+    const idx = adxStartIdx + k
+    if (idx < out.length) out[idx] = adxArr[k]
+  }
+  return out
+}
+
+export type SupertrendPoint = { value: number; dir: 1 | -1 } | null
+
+// Supertrend series (aligned to candle indices). dir = +1 bullish (price above
+// the line), -1 bearish. Standard ATR-band flip logic. Leading bars are null
+// until ATR is available.
+export function supertrend(candles: Candle[], period = 10, mult = 3): SupertrendPoint[] {
+  const out: SupertrendPoint[] = new Array(candles.length).fill(null)
+  if (candles.length < period + 1) return out
+  // Wilder ATR series.
+  const trs: number[] = [0]
+  for (let i = 1; i < candles.length; i++) {
+    const prevClose = candles[i - 1].c
+    trs.push(Math.max(candles[i].h - candles[i].l, Math.abs(candles[i].h - prevClose), Math.abs(candles[i].l - prevClose)))
+  }
+  const atrArr: (number | null)[] = new Array(candles.length).fill(null)
+  let prevAtr = trs.slice(1, period + 1).reduce((a, b) => a + b, 0) / period
+  atrArr[period] = prevAtr
+  for (let i = period + 1; i < candles.length; i++) {
+    prevAtr = (prevAtr * (period - 1) + trs[i]) / period
+    atrArr[i] = prevAtr
+  }
+
+  let finalUpper = 0
+  let finalLower = 0
+  let dir: 1 | -1 = 1
+  for (let i = period; i < candles.length; i++) {
+    const a = atrArr[i]
+    if (a == null) continue
+    const hl2 = (candles[i].h + candles[i].l) / 2
+    const basicUpper = hl2 + mult * a
+    const basicLower = hl2 - mult * a
+    const prevClose = candles[i - 1].c
+    // Carry the bands forward per the standard recursive definition.
+    finalUpper = basicUpper < finalUpper || prevClose > finalUpper ? basicUpper : finalUpper
+    finalLower = basicLower > finalLower || prevClose < finalLower ? basicLower : finalLower
+    if (i === period) {
+      // Seed: choose side by where close sits.
+      dir = candles[i].c >= hl2 ? 1 : -1
+    } else {
+      const close = candles[i].c
+      if (dir === 1 && close < finalLower) dir = -1
+      else if (dir === -1 && close > finalUpper) dir = 1
+    }
+    out[i] = { value: dir === 1 ? finalLower : finalUpper, dir }
+  }
+  return out
 }
 
 export function bollinger(values: number[], period = 20, mult = 2) {
