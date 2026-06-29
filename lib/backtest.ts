@@ -38,7 +38,7 @@ export type BacktestResult = {
   holdBars: number
 }
 
-type BacktestOptions = {
+export type BacktestOptions = {
   warmup?: number // bars needed before first signal
   holdBars?: number // max bars to hold before timeout exit
   feePct?: number // commission as % of entry, per round trip

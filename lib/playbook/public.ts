@@ -1,5 +1,6 @@
 import { PLAYBOOK } from "./strategies"
 import { PROVEN_PAIRINGS, type ProvenPairing } from "./mapping"
+import { oosFor, type OosVerdict } from "./validation"
 import { COINS, STOCKS } from "../coins"
 
 // ============================================================================
@@ -21,6 +22,10 @@ export type PublicStrategy = {
 export type PublicPairing = ProvenPairing & {
   strategyName: string
   assetName: string
+  // Out-of-sample verdict (the gold standard). "robust" earns the survived badge.
+  oosVerdict: OosVerdict | "untested"
+  oosHoldoutExpectancy: number | null
+  oosConsistency: number | null
 }
 
 const NAME_BY_SYMBOL: Record<string, string> = Object.fromEntries(

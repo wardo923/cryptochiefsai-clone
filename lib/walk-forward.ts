@@ -1,5 +1,5 @@
 import type { Candle } from "./indicators"
-import { backtest, type BacktestResult } from "./backtest"
+import { backtest, type BacktestResult, type BacktestOptions } from "./backtest"
 
 export type Fold = {
   index: number
@@ -29,6 +29,9 @@ type WalkForwardOptions = {
   isCrypto?: boolean
   intraday?: boolean
   breakeven?: boolean
+  // Optional pluggable strategy (the named Playbook strategies). When omitted,
+  // walk-forward validates the default rule engine.
+  signalFn?: BacktestOptions["signalFn"]
 }
 
 // Split candles into N equal, ordered, non-overlapping segments and backtest
@@ -42,6 +45,7 @@ export function walkForward(coinId: string, candles: Candle[], opts: WalkForward
     isCrypto: opts.isCrypto,
     intraday: opts.intraday,
     breakeven: opts.breakeven,
+    signalFn: opts.signalFn,
   }
 
   // --- Sequential folds ---
