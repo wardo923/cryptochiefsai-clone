@@ -4,7 +4,7 @@ import { ASSET_BY_ID } from "@/lib/coins"
 import { TIMEFRAMES, isTimeframe, DEFAULT_TIMEFRAME } from "@/lib/timeframe"
 import { PLAYBOOK } from "@/lib/playbook/strategies"
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 // Runs ALL 8 Playbook strategies across the requested symbols at one timeframe.
 // Candles are fetched once per symbol and reused across strategies. This is the

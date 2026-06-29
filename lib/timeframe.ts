@@ -12,6 +12,10 @@ export type TimeframeConfig = {
   // crypto: CoinGecko market_chart lookback (days) + bucket size (hours)
   cryptoDays: number
   cryptoBucketHours: number
+  // crypto: when set, pull DEEP real OHLC from Binance at this interval instead
+  // of bucketing shallow CoinGecko closes. Binance serves years of free 5m/15m
+  // /1h/4h/1d candles, so this is what makes crypto intraday backtests honest.
+  cryptoBinanceInterval?: "5m" | "15m" | "1h" | "4h" | "1d"
   // stocks: Yahoo interval + lookback (days)
   stockInterval: "5m" | "15m" | "60m" | "1d"
   stockDays: number
@@ -29,9 +33,12 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     label: "Day 5m",
     hold: "Intraday (same session)",
     bar: "5m",
-    // Crypto free tier has no deep 5m history; bucket to ~1h and flag low-sample.
-    cryptoDays: 1,
+    // Crypto: ~30 days of real 5m candles from Binance (~8.6k bars) — a deep,
+    // honest sample (hundreds of trades) that stays tractable for the per-bar
+    // backtest. Stocks stay capped by Yahoo's ~30-day 5m window.
+    cryptoDays: 30,
     cryptoBucketHours: 1,
+    cryptoBinanceInterval: "5m",
     stockInterval: "5m",
     stockDays: 30,
     holdBars: 24, // ~2 hours of 5m bars
@@ -42,8 +49,10 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     label: "Day 15m",
     hold: "Intraday (same session)",
     bar: "15m",
-    cryptoDays: 2,
+    // Crypto: ~90 days of real 15m candles from Binance (~8.6k bars).
+    cryptoDays: 90,
     cryptoBucketHours: 1,
+    cryptoBinanceInterval: "15m",
     stockInterval: "15m",
     stockDays: 55,
     holdBars: 16, // ~4 hours of 15m bars
@@ -54,8 +63,10 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     label: "Scalp",
     hold: "Intraday (hours)",
     bar: "1h",
-    cryptoDays: 14,
+    // Crypto: ~300 days of real 1h candles from Binance (~7.2k bars).
+    cryptoDays: 300,
     cryptoBucketHours: 1,
+    cryptoBinanceInterval: "1h",
     stockInterval: "60m",
     stockDays: 60,
     holdBars: 24,
@@ -68,6 +79,7 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     // ~2 years of 4h candles from Binance => a deep, meaningful trade sample.
     cryptoDays: 730,
     cryptoBucketHours: 4,
+    cryptoBinanceInterval: "4h",
     stockInterval: "1d",
     // ~8 years of daily history from Yahoo for a robust swing sample.
     stockDays: 2920,
@@ -81,6 +93,7 @@ export const TIMEFRAMES: Record<Timeframe, TimeframeConfig> = {
     // ~6 years of daily candles for the long-horizon sample.
     cryptoDays: 2190,
     cryptoBucketHours: 24,
+    cryptoBinanceInterval: "1d",
     stockInterval: "1d",
     // ~15 years of daily history (covers multiple market regimes).
     stockDays: 5475,

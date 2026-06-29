@@ -82,22 +82,21 @@ export async function getSignalCandles(id: string, tf: Timeframe): Promise<Candl
     return getStockChart(id, cfg.stockDays, 300)
   }
 
-  // Crypto swing/position: pull DEEP real OHLC from Binance (paginated) so the
-  // backtest has enough bars to produce a statistically meaningful trade count.
-  // CoinGecko's free tier is too shallow for this. Falls back to CoinGecko if
-  // the Binance symbol isn't listed or the request fails.
-  if (tf === "swing" || tf === "position") {
-    const ticker = ASSET_BY_ID[id]?.symbol
-    if (ticker) {
-      try {
-        const interval = tf === "position" ? "1d" : "4h"
-        const now = Date.now()
-        const fromMs = now - cfg.cryptoDays * DAY_MS
-        const deep = await getBinanceHistory(ticker, fromMs, now, interval)
-        if (deep.length >= 210) return deep
-      } catch (err) {
-        console.log("[v0] Binance deep history failed, falling back to CoinGecko:", (err as Error).message)
-      }
+  // Crypto: pull DEEP real OHLC from Binance (paginated) so the backtest has
+  // enough bars to produce a statistically meaningful trade count. This now
+  // covers intraday too — Binance serves YEARS of free 5m/15m/1h candles, which
+  // is the data Yahoo cannot provide for stocks. CoinGecko's free tier is too
+  // shallow for any of this. Falls back to CoinGecko if the symbol isn't listed
+  // or the request fails.
+  const ticker = ASSET_BY_ID[id]?.symbol
+  if (ticker && cfg.cryptoBinanceInterval) {
+    try {
+      const now = Date.now()
+      const fromMs = now - cfg.cryptoDays * DAY_MS
+      const deep = await getBinanceHistory(ticker, fromMs, now, cfg.cryptoBinanceInterval)
+      if (deep.length >= 210) return deep
+    } catch (err) {
+      console.log("[v0] Binance deep history failed, falling back to CoinGecko:", (err as Error).message)
     }
   }
   return getHistoryCandles(id, cfg.cryptoDays, cfg.cryptoBucketHours)
@@ -263,18 +262,33 @@ export async function getBinanceCandles(
 // until we reach `toMs` or the data runs out. Volume is included for the
 // indicator volume filter. Used for crypto swing/position backtests where the
 // CoinGecko free tier is too shallow to produce a meaningful trade count.
+export type BinanceInterval = "5m" | "15m" | "1h" | "4h" | "1d"
+
+// Bar size in ms for each supported Binance interval. Drives pagination so we
+// advance the cursor by exactly one bar past the last candle of each page.
+const BINANCE_STEP_MS: Record<BinanceInterval, number> = {
+  "5m": 5 * 60 * 1000,
+  "15m": 15 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "4h": 4 * 60 * 60 * 1000,
+  "1d": DAY_MS,
+}
+
 export async function getBinanceHistory(
   ticker: string,
   fromMs: number,
   toMs: number,
-  interval: "4h" | "1d" = "4h",
+  interval: BinanceInterval = "4h",
 ): Promise<Candle[]> {
   const symbol = `${ticker.trim().toUpperCase()}USDT`
-  const stepMs = interval === "1d" ? DAY_MS : 4 * 60 * 60 * 1000
+  const stepMs = BINANCE_STEP_MS[interval]
   const out: Candle[] = []
   let cursor = fromMs
-  // Hard cap the page count so a bad range can never loop forever.
-  for (let page = 0; page < 30 && cursor < toMs; page++) {
+  // Hard cap the page count so a bad range can never loop forever. Intraday
+  // intervals need many more pages (1000 bars/page) to cover months of data,
+  // so the cap scales with how fine the interval is.
+  const maxPages = interval === "5m" ? 200 : interval === "15m" ? 120 : interval === "1h" ? 80 : 30
+  for (let page = 0; page < maxPages && cursor < toMs; page++) {
     const url = `${BINANCE}/klines?symbol=${symbol}&interval=${interval}&startTime=${cursor}&endTime=${toMs}&limit=1000`
     const res = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate: 3600 } })
     if (!res.ok) {

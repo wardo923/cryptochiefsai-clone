@@ -80,16 +80,20 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
 
   const trades: Trade[] = []
   const costRs: number[] = []
+  // The pluggable Playbook strategies only ever read the tail of the window
+  // (longest lookback is EMA200 => ~205 bars). Passing the FULL history each
+  // bar makes the backtest O(n^2), which is intractable on deep intraday data
+  // (tens of thousands of bars). Bounding the window to a generous tail keeps
+  // signals identical while making the whole run O(n). The default ruleSignal
+  // path keeps the full window because it can use intraday session anchoring.
+  const TAIL = 320
   let i = warmup
   while (i < candles.length - 1) {
-    const window = candles.slice(0, i + 1)
-    // Pluggable strategy takes precedence; otherwise fall back to the default
-    // regime-gated rule engine (trend/mean-reversion or the intraday set).
     const sig = opts.signalFn
-      ? opts.signalFn(window)
+      ? opts.signalFn(candles.slice(Math.max(0, i + 1 - TAIL), i + 1))
       : opts.intraday
-        ? ruleSignal(window, { intraday: true, anchorMs: sessionAnchorMs(candles[i].t, isCrypto) })
-        : ruleSignal(window)
+        ? ruleSignal(candles.slice(0, i + 1), { intraday: true, anchorMs: sessionAnchorMs(candles[i].t, isCrypto) })
+        : ruleSignal(candles.slice(0, i + 1))
 
     if (!sig || sig.direction === "NEUTRAL") {
       i++
