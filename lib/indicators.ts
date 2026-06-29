@@ -151,6 +151,68 @@ export function bollinger(values: number[], period = 20, mult = 2) {
   return { upper: mid + mult * sd, middle: mid, lower: mid - mult * sd }
 }
 
+// ---- INTRADAY (day-trade) INDICATORS ---------------------------------------
+
+// Session-anchored VWAP plus 1σ volume-weighted bands. Requires volume on the
+// candles; returns null when volume is unavailable (e.g. some crypto feeds).
+export function vwap(
+  candles: Candle[],
+  anchorMs: number,
+): { vwap: number; upper: number; lower: number } | null {
+  const session = candles.filter((c) => c.t >= anchorMs && typeof c.v === "number" && c.v > 0)
+  if (session.length < 2) return null
+  let cumVol = 0
+  let cumPV = 0
+  for (const c of session) {
+    const typical = (c.h + c.l + c.c) / 3
+    cumVol += c.v as number
+    cumPV += typical * (c.v as number)
+  }
+  if (cumVol <= 0) return null
+  const vw = cumPV / cumVol
+  // Volume-weighted variance of typical price around VWAP.
+  let cumVar = 0
+  for (const c of session) {
+    const typical = (c.h + c.l + c.c) / 3
+    cumVar += (c.v as number) * (typical - vw) ** 2
+  }
+  const sd = Math.sqrt(cumVar / cumVol)
+  return { vwap: vw, upper: vw + sd, lower: vw - sd }
+}
+
+// Relative volume: average per-bar volume in the current session vs the average
+// per-bar volume across all available history. ~1.0 = normal, >1.2 = active.
+export function relativeVolume(candles: Candle[], anchorMs: number): number | null {
+  const withVol = candles.filter((c) => typeof c.v === "number" && c.v > 0) as Required<Candle>[]
+  if (withVol.length < 10) return null
+  const session = withVol.filter((c) => c.t >= anchorMs)
+  if (session.length === 0) return null
+  const sessionAvg = session.reduce((a, c) => a + c.v, 0) / session.length
+  const baseline = withVol.reduce((a, c) => a + c.v, 0) / withVol.length
+  if (baseline <= 0) return null
+  return sessionAvg / baseline
+}
+
+// Opening range: high/low/mid of the first `minutes` of the session.
+export function openingRange(
+  candles: Candle[],
+  anchorMs: number,
+  minutes = 30,
+): { high: number; low: number; mid: number } | null {
+  const endMs = anchorMs + minutes * 60 * 1000
+  const orBars = candles.filter((c) => c.t >= anchorMs && c.t < endMs)
+  if (orBars.length === 0) return null
+  const high = Math.max(...orBars.map((c) => c.h))
+  const low = Math.min(...orBars.map((c) => c.l))
+  return { high, low, mid: (high + low) / 2 }
+}
+
+export type IntradaySnapshot = {
+  vwap: { vwap: number; upper: number; lower: number } | null
+  rvol: number | null
+  openingRange: { high: number; low: number; mid: number } | null
+}
+
 export type IndicatorSnapshot = {
   price: number
   rsi14: number | null
@@ -173,9 +235,15 @@ export type IndicatorSnapshot = {
   trend: "bullish" | "bearish" | "neutral"
   // Market regime drives which rule set applies (trend vs mean-reversion)
   regime: "trending" | "ranging"
+  // Intraday day-trade tools (only populated when buildSnapshot is given an
+  // anchor; null fields when volume/session data is unavailable)
+  intraday: IntradaySnapshot | null
 }
 
-export function buildSnapshot(candles: Candle[]): IndicatorSnapshot {
+export function buildSnapshot(
+  candles: Candle[],
+  opts?: { anchorMs?: number; intraday?: boolean },
+): IndicatorSnapshot {
   const closes = candles.map((c) => c.c)
   const price = closes[closes.length - 1]
   const ema20 = ema(closes, 20)
@@ -222,6 +290,16 @@ export function buildSnapshot(candles: Candle[]): IndicatorSnapshot {
     regime = Math.abs(ema20 - ema50) / price > 0.01 ? "trending" : "ranging"
   }
 
+  // Intraday tooling: only computed when an anchor is provided (day-trade mode).
+  let intraday: IntradaySnapshot | null = null
+  if (opts?.intraday && opts.anchorMs != null) {
+    intraday = {
+      vwap: vwap(candles, opts.anchorMs),
+      rvol: relativeVolume(candles, opts.anchorMs),
+      openingRange: openingRange(candles, opts.anchorMs, 30),
+    }
+  }
+
   return {
     price,
     rsi14: rsi(closes, 14),
@@ -239,5 +317,6 @@ export function buildSnapshot(candles: Candle[]): IndicatorSnapshot {
     volumeRatio,
     trend,
     regime,
+    intraday,
   }
 }

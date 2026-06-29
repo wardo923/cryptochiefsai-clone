@@ -1,5 +1,6 @@
 import type { Candle } from "./indicators"
 import { ruleSignal } from "./strategy"
+import { sessionAnchorMs } from "./session"
 
 export type Trade = {
   entryIndex: number
@@ -38,6 +39,8 @@ type BacktestOptions = {
   holdBars?: number // max bars to hold before timeout exit
   feePct?: number // round-trip cost as % of entry (fees + slippage)
   cooldown?: number // bars to wait after a trade closes
+  intraday?: boolean // use the intraday (VWAP/OR/RVOL) rule set
+  isCrypto?: boolean // anchor sessions to UTC day (crypto) vs 09:30 ET (stocks)
 }
 
 // Walk forward bar-by-bar. At each bar we only use data up to and including
@@ -45,7 +48,8 @@ type BacktestOptions = {
 // a directional signal, we open a trade and then resolve it against future
 // highs/lows using stop-loss and target, intrabar.
 export function backtest(coinId: string, candles: Candle[], opts: BacktestOptions = {}): BacktestResult {
-  const warmup = opts.warmup ?? 205 // enough for EMA200
+  // Intraday needs far less warmup (no EMA200 dependency in that rule set).
+  const warmup = opts.warmup ?? (opts.intraday ? 60 : 205)
   const holdBars = opts.holdBars ?? 14
   const feePct = opts.feePct ?? 0.1 // 0.1% round trip
   const cooldown = opts.cooldown ?? 1
@@ -54,7 +58,9 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
   let i = warmup
   while (i < candles.length - 1) {
     const window = candles.slice(0, i + 1)
-    const sig = ruleSignal(window)
+    const sig = opts.intraday
+      ? ruleSignal(window, { intraday: true, anchorMs: sessionAnchorMs(candles[i].t, opts.isCrypto ?? false) })
+      : ruleSignal(window)
 
     if (sig.direction === "NEUTRAL") {
       i++

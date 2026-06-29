@@ -73,9 +73,11 @@ export async function getStockRangeCandles(symbol: string, fromMs: number, toMs:
 export async function getSignalCandles(id: string, tf: Timeframe): Promise<Candle[]> {
   const cfg = TIMEFRAMES[tf]
   if (isStock(id)) {
-    if (cfg.stockInterval === "60m") {
+    // Any sub-daily interval (5m/15m/60m) uses an explicit period window;
+    // daily uses the standard chart fetch.
+    if (cfg.stockInterval !== "1d") {
       const now = Date.now()
-      return getYahooDaily(id, now - cfg.stockDays * DAY_MS, now, 300, "60m")
+      return getYahooDaily(id, now - cfg.stockDays * DAY_MS, now, 120, cfg.stockInterval)
     }
     return getStockChart(id, cfg.stockDays, 300)
   }

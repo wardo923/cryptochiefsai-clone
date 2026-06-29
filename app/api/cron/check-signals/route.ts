@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db"
 import { getCandles } from "@/lib/market"
-import { ruleSignal } from "@/lib/strategy"
+import { ruleSignal, ALERT_CONFIDENCE_MIN } from "@/lib/strategy"
 import { sendSms } from "@/lib/sms"
 import { ASSET_BY_ID } from "@/lib/coins"
 
@@ -41,7 +41,15 @@ export async function GET(req: Request) {
   const prevByAsset = new Map(prevRows.map((r) => [r.asset_id, r.last_direction]))
 
   let alertsSent = 0
-  const results: { asset: string; from: string; to: string; flipped: boolean }[] = []
+  const results: {
+    asset: string
+    from: string
+    to: string
+    flipped: boolean
+    confidence: number
+    passesFloor: boolean
+    sent: boolean
+  }[] = []
 
   // 3) Evaluate each asset once, compare to stored state.
   for (const assetId of assetIds) {
@@ -63,11 +71,16 @@ export async function GET(req: Request) {
     }
 
     const prev = prevByAsset.get(assetId) ?? "NEUTRAL"
-    // Alert only on a NEW flip INTO a directional signal.
+    // Alert only on a NEW flip INTO a directional signal...
     const flipped = direction !== prev && (direction === "LONG" || direction === "SHORT")
-    results.push({ asset: assetId, from: prev, to: direction, flipped })
+    // ...AND only when calibrated confidence clears the alert floor. Sub-floor
+    // flips still update stored state below (so we don't re-alert later) but
+    // are not sent. This is the enforced guardrail.
+    const passesFloor = confidence >= ALERT_CONFIDENCE_MIN
+    const willSend = flipped && passesFloor
+    results.push({ asset: assetId, from: prev, to: direction, flipped, confidence, passesFloor, sent: willSend })
 
-    if (flipped) {
+    if (willSend) {
       const recipients = subs.filter((s) => s.asset_id === assetId)
       const arrow = direction === "LONG" ? "▲ LONG" : "▼ SHORT"
       const body = `Sightline alert: ${asset.symbol} just flipped ${arrow} (confidence ${confidence}%). Entry near ${entry}. Not financial advice.`

@@ -1,25 +1,25 @@
 import { sql } from "@/lib/db"
-import { getSignalCandles } from "@/lib/market"
+import { getSignalCandles, isStock } from "@/lib/market"
 import { ruleSignal } from "@/lib/strategy"
 import { ASSET_BY_ID } from "@/lib/coins"
-import { TIMEFRAMES, type Timeframe } from "@/lib/timeframe"
+import { TIMEFRAMES, isIntraday, type Timeframe } from "@/lib/timeframe"
+import { sessionAnchorMs } from "@/lib/session"
 import type { Candle } from "@/lib/indicators"
 
-// The forward-test universe: crypto majors + SPY, tracked on the two
-// timeframes that carry meaningful sample sizes (swing + position). Scalp is
-// intentionally excluded — its sample sizes are too thin to forward-test.
+// The forward-test universe: crypto majors + SPY across swing/position, plus
+// SPY (and BTC) on the day-trade intraday timeframes so the new mode also
+// accumulates a real track record. Intraday lanes stay low-sample until enough
+// resolve. Scalp is excluded — its sample sizes are too thin to forward-test.
 export const TRACKED = [
-  { assetId: "bitcoin", timeframes: ["swing", "position"] as Timeframe[] },
+  { assetId: "bitcoin", timeframes: ["intraday15m", "swing", "position"] as Timeframe[] },
   { assetId: "ethereum", timeframes: ["swing", "position"] as Timeframe[] },
   { assetId: "solana", timeframes: ["swing", "position"] as Timeframe[] },
-  { assetId: "SPY", timeframes: ["swing", "position"] as Timeframe[] },
+  { assetId: "SPY", timeframes: ["intraday5m", "intraday15m", "swing", "position"] as Timeframe[] },
 ]
 
-const HOUR_MS = 60 * 60 * 1000
-const BAR_MS: Record<Timeframe, number> = {
-  scalp: 1 * HOUR_MS,
-  swing: 4 * HOUR_MS,
-  position: 24 * HOUR_MS,
+// Milliseconds per bar for a timeframe, derived from its config.
+function barMs(tf: Timeframe): number {
+  return TIMEFRAMES[tf].barMinutes * 60 * 1000
 }
 
 export type ForwardSignal = {
@@ -62,7 +62,11 @@ export async function logNewSignals(): Promise<{ logged: number; skipped: number
           skipped++
           continue
         }
-        const s = ruleSignal(candles)
+        const intraday = isIntraday(tf)
+        const lastTs = candles[candles.length - 1]?.t ?? Date.now()
+        const s = intraday
+          ? ruleSignal(candles, { intraday: true, anchorMs: sessionAnchorMs(lastTs, !isStock(t.assetId)) })
+          : ruleSignal(candles)
         if (s.direction === "NEUTRAL") {
           skipped++
           continue
@@ -79,7 +83,7 @@ export async function logNewSignals(): Promise<{ logged: number; skipped: number
           continue
         }
 
-        const expiresAt = new Date(Date.now() + TIMEFRAMES[tf].holdBars * BAR_MS[tf]).toISOString()
+        const expiresAt = new Date(Date.now() + TIMEFRAMES[tf].holdBars * barMs(tf)).toISOString()
         await sql`
           INSERT INTO forward_test_signals
             (asset_id, ticker, timeframe, direction, confidence, regime,

@@ -23,12 +23,28 @@ export type RuleSignal = {
 // more selective (fewer, higher-quality signals) — the chosen objective.
 const CONVICTION_THRESHOLD = 50
 
+// Minimum calibrated confidence required to actually FIRE an alert (SMS/email).
+// Flips below this still update stored state but are suppressed — the chosen
+// guardrail. Shown in the day-trade dashboard as a pass/fail gate.
+export const ALERT_CONFIDENCE_MIN = 60
+
+export type RuleOpts = {
+  // Day-trade mode: use the intraday (VWAP / opening-range / RVOL) rule set,
+  // anchored to the session start `anchorMs`.
+  intraday?: boolean
+  anchorMs?: number
+}
+
 // Regime-gated rule engine. The market is first classified as TRENDING or
 // RANGING, then ONLY the rule set suited to that regime votes. This prevents
 // trend-following and mean-reversion rules from cancelling each other out
 // (the main weakness of the old additive model). A directional call also
 // requires explicit confirmation, or it is downgraded to NEUTRAL.
-export function ruleSignal(candles: Candle[]): RuleSignal {
+// In day-trade mode it delegates to the intraday rule set instead.
+export function ruleSignal(candles: Candle[], opts?: RuleOpts): RuleSignal {
+  if (opts?.intraday && opts.anchorMs != null) {
+    return intradayRuleSignal(candles, opts.anchorMs)
+  }
   const snap = buildSnapshot(candles)
   const reasons: string[] = []
   const price = snap.price
@@ -223,11 +239,219 @@ export function ruleSignal(candles: Candle[]): RuleSignal {
   }
 }
 
+// ---- INTRADAY (DAY-TRADE) RULE SET ------------------------------------------
+// Built on the tools day traders actually use: session VWAP, the opening range,
+// and relative volume. Direction comes from VWAP location + EMA tilt; a trade
+// is only CONFIRMED on an opening-range breakout (or a clean VWAP reclaim when
+// no opening range exists yet). A directional call additionally REQUIRES a
+// non-thin tape (RVOL), otherwise it is downgraded to NEUTRAL. Stops sit beyond
+// the real intraday invalidation (OR level / VWAP / swing) and targets are a
+// tighter 1.5R suited to same-session holds.
+const INTRADAY_TARGET_R = 1.5
+
+export function intradayRuleSignal(candles: Candle[], anchorMs: number): RuleSignal {
+  const snap = buildSnapshot(candles, { intraday: true, anchorMs })
+  const intr = snap.intraday
+  const reasons: string[] = []
+  const price = snap.price
+  const atr = snap.atr14 ?? price * 0.005
+
+  let score = 0
+  let confirmed = false
+  let confirmations = 0
+  let dir = 0 // +1 long bias, -1 short bias
+
+  // 1) VWAP location sets the directional bias (the intraday "trend").
+  if (intr?.vwap) {
+    if (price > intr.vwap.vwap) {
+      score += 25
+      dir = 1
+      confirmations++
+      reasons.push(`Price above session VWAP ($${intr.vwap.vwap.toFixed(2)}) — intraday long bias`)
+    } else if (price < intr.vwap.vwap) {
+      score -= 25
+      dir = -1
+      confirmations++
+      reasons.push(`Price below session VWAP ($${intr.vwap.vwap.toFixed(2)}) — intraday short bias`)
+    }
+  } else {
+    // No volume/VWAP (e.g. crypto feed): fall back to EMA20 vs price for bias.
+    if (snap.ema20 != null) {
+      if (price > snap.ema20) {
+        score += 18
+        dir = 1
+        reasons.push("No VWAP (volume unavailable) — using EMA20 for intraday bias (long)")
+      } else if (price < snap.ema20) {
+        score -= 18
+        dir = -1
+        reasons.push("No VWAP (volume unavailable) — using EMA20 for intraday bias (short)")
+      }
+    }
+  }
+
+  // 2) EMA tilt agreement adds conviction.
+  if (snap.ema20 != null && snap.ema50 != null && dir !== 0) {
+    const emaUp = snap.ema20 > snap.ema50
+    if (dir > 0 && emaUp) {
+      score += 12
+      confirmations++
+      reasons.push("EMA20 > EMA50 supports the long bias")
+    } else if (dir < 0 && !emaUp) {
+      score -= 12
+      confirmations++
+      reasons.push("EMA20 < EMA50 supports the short bias")
+    }
+  }
+
+  // 3) CONFIRMATION — opening-range breakout, else a VWAP reclaim/reject.
+  if (intr?.openingRange) {
+    const or = intr.openingRange
+    if (dir > 0 && price > or.high) {
+      score += 22
+      confirmed = true
+      confirmations++
+      reasons.push(`Breakout above opening-range high ($${or.high.toFixed(2)})`)
+    } else if (dir < 0 && price < or.low) {
+      score -= 22
+      confirmed = true
+      confirmations++
+      reasons.push(`Breakdown below opening-range low ($${or.low.toFixed(2)})`)
+    } else {
+      reasons.push(
+        `Inside opening range ($${or.low.toFixed(2)}–$${or.high.toFixed(2)}) — no breakout confirmation yet`,
+      )
+    }
+  } else if (intr?.vwap && candles.length >= 2 && dir !== 0) {
+    // VWAP reclaim: last bar crossed back through VWAP in the bias direction.
+    const last = candles[candles.length - 1]
+    const prev = candles[candles.length - 2]
+    if (dir > 0 && prev.c <= intr.vwap.vwap && last.c > intr.vwap.vwap) {
+      score += 18
+      confirmed = true
+      confirmations++
+      reasons.push("Fresh reclaim of VWAP from below (long trigger)")
+    } else if (dir < 0 && prev.c >= intr.vwap.vwap && last.c < intr.vwap.vwap) {
+      score -= 18
+      confirmed = true
+      confirmations++
+      reasons.push("Fresh rejection of VWAP from above (short trigger)")
+    } else {
+      reasons.push("No VWAP reclaim/reject yet — confirmation missing")
+    }
+  }
+
+  // 4) RELATIVE VOLUME — required participation. Thin tape => stand aside.
+  let tapeOk = true
+  if (intr?.rvol != null) {
+    if (intr.rvol >= 1.2) {
+      score += 8 * dir
+      confirmations++
+      reasons.push(`Relative volume ${intr.rvol.toFixed(1)}x — active tape`)
+    } else if (intr.rvol < 0.9) {
+      tapeOk = false
+      reasons.push(`Relative volume only ${intr.rvol.toFixed(1)}x — tape too thin to trade`)
+    } else {
+      reasons.push(`Relative volume ${intr.rvol.toFixed(1)}x — acceptable`)
+    }
+  } else if (snap.volumeRatio != null) {
+    if (snap.volumeRatio >= 1.2) {
+      confirmations++
+      reasons.push(`Volume ${snap.volumeRatio.toFixed(1)}x average (participation)`)
+    } else if (snap.volumeRatio < 0.8) {
+      tapeOk = false
+      reasons.push(`Volume only ${snap.volumeRatio.toFixed(1)}x average — thin`)
+    }
+  } else {
+    reasons.push("Volume data unavailable — tape filter skipped")
+  }
+
+  // 5) Exhaustion guard — don't chase a stretched intraday RSI.
+  if (snap.rsi14 != null && dir !== 0) {
+    if (dir > 0 && snap.rsi14 > 80) {
+      score -= 10
+      reasons.push(`RSI ${snap.rsi14.toFixed(0)} stretched — late to chase`)
+    } else if (dir < 0 && snap.rsi14 < 20) {
+      score += 10
+      reasons.push(`RSI ${snap.rsi14.toFixed(0)} stretched — late to chase`)
+    }
+  }
+
+  reasons.unshift(
+    intr?.vwap
+      ? "Day-trade mode: VWAP + opening-range + relative-volume rules"
+      : "Day-trade mode: volume tools limited for this asset — using EMA/price structure",
+  )
+
+  const score_clamped = Math.max(-100, Math.min(100, score))
+  const abs = Math.abs(score_clamped)
+
+  // Directional trade requires conviction, the confirmation trigger, AND a
+  // non-thin tape. Otherwise stand aside.
+  let direction: RuleSignal["direction"] = "NEUTRAL"
+  if (abs >= CONVICTION_THRESHOLD && confirmed && tapeOk) {
+    direction = score_clamped > 0 ? "LONG" : "SHORT"
+  }
+
+  const confidence =
+    direction === "NEUTRAL"
+      ? Math.round(Math.min(45, 30 + abs * 0.2))
+      : Math.round(Math.min(72, 48 + confirmations * 5 + (abs - CONVICTION_THRESHOLD) * 0.15))
+
+  // ---- INTRADAY RISK MODEL ----
+  // Stop beyond the nearest true invalidation (OR level / VWAP / recent swing),
+  // clamped to a tight 0.75x–2x ATR band; target at 1.5R.
+  const entry = price
+  const minRisk = atr * 0.75
+  const maxRisk = atr * 2.0
+  let stopLoss: number
+  let target: number
+  if (direction === "SHORT") {
+    const candidates = [snap.recentHigh, intr?.openingRange?.high, intr?.vwap?.upper].filter(
+      (v): v is number => typeof v === "number" && v > entry,
+    )
+    const structureStop = candidates.length ? Math.min(...candidates) + atr * 0.15 : entry + atr
+    let risk = structureStop - entry
+    risk = Math.max(minRisk, Math.min(maxRisk, risk))
+    stopLoss = entry + risk
+    target = entry - risk * INTRADAY_TARGET_R
+    if (direction === "SHORT") reasons.push("Stop above intraday resistance (OR/VWAP/swing); target 1.5R")
+  } else {
+    const candidates = [snap.recentLow, intr?.openingRange?.low, intr?.vwap?.lower].filter(
+      (v): v is number => typeof v === "number" && v < entry,
+    )
+    const structureStop = candidates.length ? Math.max(...candidates) - atr * 0.15 : entry - atr
+    let risk = entry - structureStop
+    risk = Math.max(minRisk, Math.min(maxRisk, risk))
+    stopLoss = entry - risk
+    target = entry + risk * INTRADAY_TARGET_R
+    if (direction === "LONG") reasons.push("Stop below intraday support (OR/VWAP/swing); target 1.5R")
+  }
+  const risk = Math.abs(entry - stopLoss)
+  const reward = Math.abs(target - entry)
+  const riskReward = risk > 0 ? reward / risk : 0
+
+  return {
+    direction,
+    score: score_clamped,
+    confidence,
+    regime: snap.regime,
+    entry,
+    stopLoss,
+    target,
+    riskReward,
+    reasons,
+  }
+}
+
 // Map the deterministic rule signal into the same TradeSignal shape the AI
 // returns. This powers the free, no-billing fallback when the AI Gateway is
 // unavailable, so the UI renders identically either way.
-export function ruleSignalToTradeSignal(candles: Candle[], tf: Timeframe = "swing"): TradeSignal {
-  const r = ruleSignal(candles)
+export function ruleSignalToTradeSignal(
+  candles: Candle[],
+  tf: Timeframe = "swing",
+  opts?: RuleOpts,
+): TradeSignal {
+  const r = ruleSignal(candles, opts)
   const cfg = TIMEFRAMES[tf]
   // Build a small entry zone around the current price (±0.2%).
   const band = r.entry * 0.002

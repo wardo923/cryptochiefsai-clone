@@ -1,10 +1,11 @@
 import { generateText, Output } from "ai"
-import { getSignalCandles } from "@/lib/market"
+import { getSignalCandles, isStock } from "@/lib/market"
 import { buildSnapshot } from "@/lib/indicators"
 import { COIN_BY_ID } from "@/lib/coins"
 import { signalSchema } from "@/lib/signal"
-import { ruleSignalToTradeSignal } from "@/lib/strategy"
-import { TIMEFRAMES, isTimeframe, DEFAULT_TIMEFRAME } from "@/lib/timeframe"
+import { ruleSignalToTradeSignal, ALERT_CONFIDENCE_MIN } from "@/lib/strategy"
+import { TIMEFRAMES, isTimeframe, isIntraday, DEFAULT_TIMEFRAME } from "@/lib/timeframe"
+import { sessionAnchorMs, sessionPhase, PHASE_LABEL, noTradeWindow } from "@/lib/session"
 
 export const maxDuration = 30
 
@@ -28,7 +29,24 @@ export async function POST(req: Request) {
     if (candles.length < 30) {
       return Response.json({ error: "Not enough market data" }, { status: 422 })
     }
-    const snap = buildSnapshot(candles)
+
+    const intraday = isIntraday(timeframe)
+    const isCrypto = !isStock(coinId)
+    // Anchor intraday tooling (VWAP / opening range) to the latest session.
+    const lastTs = candles[candles.length - 1]?.t ?? Date.now()
+    const anchorMs = intraday ? sessionAnchorMs(lastTs, isCrypto) : undefined
+    const snap = buildSnapshot(candles, intraday ? { intraday: true, anchorMs } : undefined)
+
+    // Session context (equities only; crypto trades 24/7).
+    const now = Date.now()
+    const session = intraday
+      ? {
+          phase: isCrypto ? "midday" : sessionPhase(now),
+          phaseLabel: isCrypto ? "Crypto trades 24/7" : PHASE_LABEL[sessionPhase(now)],
+          noTrade: isCrypto ? { blocked: false, reason: null } : noTradeWindow(now),
+          isCrypto,
+        }
+      : null
 
     const indicatorBlock = [
       `Asset: ${coin.name} (${coin.symbol})`,
@@ -46,6 +64,17 @@ export async function POST(req: Request) {
       `ATR(14): ${fmt(snap.atr14)} (use for stop sizing)`,
       `Recent swing high (60 bars): $${fmt(snap.recentHigh)}`,
       `Recent swing low (60 bars): $${fmt(snap.recentLow)}`,
+      ...(intraday && snap.intraday
+        ? [
+            snap.intraday.vwap
+              ? `Session VWAP: $${fmt(snap.intraday.vwap.vwap)} (bands $${fmt(snap.intraday.vwap.lower)} / $${fmt(snap.intraday.vwap.upper)})`
+              : "Session VWAP: n/a (no volume)",
+            snap.intraday.openingRange
+              ? `Opening range: $${fmt(snap.intraday.openingRange.low)} – $${fmt(snap.intraday.openingRange.high)}`
+              : "Opening range: n/a",
+            `Relative volume: ${snap.intraday.rvol != null ? snap.intraday.rvol.toFixed(2) + "x" : "n/a"}`,
+          ]
+        : []),
     ].join("\n")
 
     // Try AI-written analysis first; if the AI Gateway is unavailable (no card/
@@ -60,6 +89,13 @@ export async function POST(req: Request) {
         system: [
           `You are a disciplined technical analyst producing a single actionable ${tfCfg.label.toLowerCase()} signal with a ${tfCfg.hold} hold horizon.`,
           `You are given pre-computed technical indicators from ${tfCfg.bar} candles. Base your call strictly on this data.`,
+          ...(intraday
+            ? [
+                "This is a DAY-TRADE signal: the position must be sized to close within the same session.",
+                "Prioritise intraday structure — session VWAP, the opening range, and relative volume — over slow trend indicators.",
+                "Require participation: if relative volume is weak/thin, prefer NEUTRAL. Stops belong just beyond VWAP/opening-range/swing; keep targets a realistic 1.5R.",
+              ]
+            : []),
           "Rules:",
           "- Anchor entry zones, stop-loss and targets to the provided price, ATR, swing levels, EMAs and Bollinger bands. Numbers must be realistic relative to current price.",
           "- Size the stop using ATR (typically 1-2x ATR from entry) and place it beyond a logical level.",
@@ -74,7 +110,7 @@ export async function POST(req: Request) {
     } catch (aiErr) {
       const m = (aiErr as Error).message || ""
       console.log("[v0] AI unavailable, using indicator fallback:", m)
-      signal = ruleSignalToTradeSignal(candles, timeframe)
+      signal = ruleSignalToTradeSignal(candles, timeframe, intraday ? { intraday: true, anchorMs } : undefined)
       mode = "indicator"
     }
 
@@ -84,6 +120,10 @@ export async function POST(req: Request) {
       signal,
       mode,
       timeframe,
+      intraday,
+      session,
+      confidenceFloor: ALERT_CONFIDENCE_MIN,
+      passesFloor: (signal?.confidence ?? 0) >= ALERT_CONFIDENCE_MIN && signal?.direction !== "NEUTRAL",
       generatedAt: new Date().toISOString(),
     })
   } catch (err) {
