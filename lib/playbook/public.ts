@@ -17,6 +17,8 @@ export type PublicStrategy = {
   tagline: string
   // How many markets this strategy proved out on (social-proof, not logic).
   provenCount: number
+  // How many of those also survived out-of-sample (the gold standard).
+  survivedCount: number
 }
 
 export type PublicPairing = ProvenPairing & {
@@ -33,44 +35,63 @@ const NAME_BY_SYMBOL: Record<string, string> = Object.fromEntries(
 )
 
 export function publicStrategies(): PublicStrategy[] {
-  return PLAYBOOK.map((s) => ({
-    id: s.id,
-    name: s.name,
-    tagline: s.tagline,
-    provenCount: PROVEN_PAIRINGS.filter((p) => p.strategyId === s.id).length,
-  }))
+  return PLAYBOOK.map((s) => {
+    const proven = PROVEN_PAIRINGS.filter((p) => p.strategyId === s.id)
+    return {
+      id: s.id,
+      name: s.name,
+      tagline: s.tagline,
+      provenCount: proven.length,
+      survivedCount: proven.filter(
+        (p) => oosFor(p.strategyId, p.symbol, p.timeframe)?.verdict === "robust",
+      ).length,
+    }
+  })
 }
 
 const STRATEGY_NAME: Record<string, string> = Object.fromEntries(
   PLAYBOOK.map((s) => [s.id, s.name]),
 )
 
-// Enrich a raw pairing with display names (never any logic).
+// Enrich a raw pairing with display names + out-of-sample verdict (never any logic).
 function decorate(p: ProvenPairing): PublicPairing {
+  const oos = oosFor(p.strategyId, p.symbol, p.timeframe)
   return {
     ...p,
     strategyName: STRATEGY_NAME[p.strategyId] ?? p.strategyId,
     assetName: NAME_BY_SYMBOL[p.symbol] ?? p.symbol,
+    oosVerdict: oos?.verdict ?? "untested",
+    oosHoldoutExpectancy: oos?.holdoutExpectancy ?? null,
+    oosConsistency: oos?.consistency ?? null,
   }
 }
 
-// All proven pairings, decorated, best edge first.
+// Rank: gold-standard survivors first, then by edge. A pairing that held up
+// out-of-sample is more trustworthy than a bigger in-sample number that didn't.
+const OOS_RANK: Record<string, number> = { robust: 0, fragile: 1, inconclusive: 2, untested: 3 }
+function byTrust(a: PublicPairing, b: PublicPairing): number {
+  const r = OOS_RANK[a.oosVerdict] - OOS_RANK[b.oosVerdict]
+  if (r !== 0) return r
+  return b.expectancy - a.expectancy
+}
+
+// All proven pairings, decorated, most trustworthy first.
 export function allPublicPairings(): PublicPairing[] {
-  return PROVEN_PAIRINGS.map(decorate).sort((a, b) => b.expectancy - a.expectancy)
+  return PROVEN_PAIRINGS.map(decorate).sort(byTrust)
 }
 
 // Proven pairings for one ticker (what a user sees when they pick an asset).
 export function pairingsForSymbol(symbol: string): PublicPairing[] {
   return PROVEN_PAIRINGS.filter((p) => p.symbol === symbol)
     .map(decorate)
-    .sort((a, b) => b.expectancy - a.expectancy)
+    .sort(byTrust)
 }
 
 // Proven pairings for one strategy (which markets it works on).
 export function pairingsForStrategy(strategyId: string): PublicPairing[] {
   return PROVEN_PAIRINGS.filter((p) => p.strategyId === strategyId)
     .map(decorate)
-    .sort((a, b) => b.expectancy - a.expectancy)
+    .sort(byTrust)
 }
 
 // Distinct symbols that have at least one proven strategy, with display info.

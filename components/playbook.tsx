@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Search, ShieldCheck, TrendingUp, ChevronRight, Award, Info, CircleCheck } from "lucide-react"
+import { Search, ShieldCheck, TrendingUp, ChevronRight, Award, Info, CircleCheck, BadgeCheck } from "lucide-react"
 import type { PublicStrategy, PublicPairing } from "@/lib/playbook/public"
 import { cn } from "@/lib/utils"
 
@@ -16,10 +16,25 @@ function tierLabel(tier: string) {
   return tier === "strong" ? "Strong evidence" : "Proven"
 }
 
+function isSurvived(p: PublicPairing): boolean {
+  return p.oosVerdict === "robust"
+}
+
+// Trust order: gold-standard survivors first, then by edge.
+const OOS_RANK: Record<string, number> = { robust: 0, fragile: 1, inconclusive: 2, untested: 3 }
+function byTrust(a: PublicPairing, b: PublicPairing): number {
+  const r = OOS_RANK[a.oosVerdict] - OOS_RANK[b.oosVerdict]
+  return r !== 0 ? r : b.expectancy - a.expectancy
+}
+
 // A plain-English read on win rate + expectancy so a beginner knows what to expect.
 function plainOutcome(p: PublicPairing): string {
   const winners = Math.round(p.winRate)
-  return `Won ${winners} of every 100 trades, and on average made money after costs across ${p.trades} tests.`
+  const base = `Won ${winners} of every 100 trades, and on average made money after costs across ${p.trades} tests.`
+  if (isSurvived(p)) {
+    return `${base} It also kept working on data it had never seen — the test most strategies fail.`
+  }
+  return base
 }
 
 export function Playbook({
@@ -101,7 +116,7 @@ function AssetFinder({ assets, pairings }: { assets: Asset[]; pairings: PublicPa
   }, [assets, query])
 
   const matches = useMemo(
-    () => (selected ? pairings.filter((p) => p.symbol === selected).sort((a, b) => b.expectancy - a.expectancy) : []),
+    () => (selected ? pairings.filter((p) => p.symbol === selected).sort(byTrust) : []),
     [selected, pairings],
   )
 
@@ -189,14 +204,20 @@ function AssetFinder({ assets, pairings }: { assets: Asset[]; pairings: PublicPa
 }
 
 function BestFitCard({ pairing }: { pairing: PublicPairing }) {
+  const survived = isSurvived(pairing)
   return (
-    <div className="overflow-hidden rounded-xl border border-primary/40 bg-card">
-      <div className="flex items-center justify-between gap-2 border-b border-border bg-primary/5 px-4 py-3">
+    <div className={cn("overflow-hidden rounded-xl border bg-card", survived ? "border-chart-4/50" : "border-primary/40")}>
+      <div
+        className={cn(
+          "flex items-center justify-between gap-2 border-b border-border px-4 py-3",
+          survived ? "bg-chart-4/10" : "bg-primary/5",
+        )}
+      >
         <div className="flex items-center gap-2">
-          <Award className="size-4 text-primary" />
+          <Award className={cn("size-4", survived ? "text-chart-4" : "text-primary")} />
           <span className="text-base font-semibold">{pairing.strategyName}</span>
         </div>
-        <TierBadge tier={pairing.tier} />
+        {survived ? <SurvivedBadge /> : <TierBadge tier={pairing.tier} />}
       </div>
       <div className="p-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -214,6 +235,15 @@ function BestFitCard({ pairing }: { pairing: PublicPairing }) {
           <CircleCheck className="size-3.5 text-chart-3" />
           Tested over {pairing.trades} trades. Worst losing streak: {pairing.maxDrawdownR}R.
         </p>
+        {survived && (
+          <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-chart-4/10 px-2.5 py-2 text-[11px] text-foreground">
+            <BadgeCheck className="size-3.5 shrink-0 text-chart-4" />
+            Survived out-of-sample: still profitable on {pairing.oosConsistency}% of unseen time periods
+            {pairing.oosHoldoutExpectancy != null
+              ? ` (+${pairing.oosHoldoutExpectancy}R on the holdout it never trained on).`
+              : "."}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -225,7 +255,7 @@ function AltRow({ pairing }: { pairing: PublicPairing }) {
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium">{pairing.strategyName}</span>
-          <TierBadge tier={pairing.tier} small />
+          {isSurvived(pairing) ? <SurvivedBadge small /> : <TierBadge tier={pairing.tier} small />}
         </div>
         <div className="text-[11px] text-muted-foreground">{TF_LABEL[pairing.timeframe]}</div>
       </div>
@@ -259,7 +289,7 @@ function StrategyBrowser({
     <div className="flex flex-col gap-2">
       {strategies.map((s) => {
         const isOpen = open === s.id
-        const works = pairings.filter((p) => p.strategyId === s.id).sort((a, b) => b.expectancy - a.expectancy)
+        const works = pairings.filter((p) => p.strategyId === s.id).sort(byTrust)
         return (
           <div key={s.id} className="overflow-hidden rounded-xl border border-border bg-card">
             <button
@@ -276,6 +306,12 @@ function StrategyBrowser({
                   ) : (
                     <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
                       no proven market
+                    </span>
+                  )}
+                  {s.survivedCount > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded bg-chart-4/15 px-1.5 py-0.5 text-[10px] font-medium text-chart-4">
+                      <BadgeCheck className="size-3" />
+                      {s.survivedCount} survived
                     </span>
                   )}
                 </div>
@@ -300,6 +336,12 @@ function StrategyBrowser({
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium">{p.assetName}</span>
                             <span className="text-[10px] text-muted-foreground">{TF_LABEL[p.timeframe]}</span>
+                            {isSurvived(p) && (
+                              <span className="inline-flex items-center gap-0.5 rounded bg-chart-4/15 px-1 py-0.5 text-[9px] font-medium text-chart-4">
+                                <BadgeCheck className="size-2.5" />
+                                survived
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 text-right tabular-nums">
                             <span className="text-xs text-muted-foreground">{p.winRate}% win</span>
@@ -331,6 +373,22 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className={cn("mt-0.5 text-sm font-semibold tabular-nums", tone === "good" && "text-chart-3")}>{value}</div>
     </div>
+  )
+}
+
+// The gold standard: this pairing held up on data it never trained on.
+function SurvivedBadge({ small }: { small?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full bg-chart-4/15 font-medium text-chart-4",
+        small ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
+      )}
+      title="Survived out-of-sample validation — still profitable on data it never trained on"
+    >
+      <BadgeCheck className={small ? "size-3" : "size-3.5"} />
+      Survived OOS
+    </span>
   )
 }
 
