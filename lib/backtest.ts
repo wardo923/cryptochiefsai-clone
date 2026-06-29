@@ -49,6 +49,10 @@ type BacktestOptions = {
   isCrypto?: boolean // anchor sessions to UTC day (crypto) vs 09:30 ET (stocks)
   breakeven?: boolean // move stop to entry once price reaches breakevenAtR favorable
   breakevenAtR?: number // favorable R that arms the breakeven stop (default 1)
+  // Pluggable strategy. When provided, this replaces the default `ruleSignal`
+  // so the SAME walk-forward + realistic-cost engine can backtest any of the
+  // named Playbook strategies. Returns null/NEUTRAL to stand aside at a bar.
+  signalFn?: (window: Candle[]) => { direction: "LONG" | "SHORT" | "NEUTRAL"; stopLoss: number; target: number } | null
 }
 
 // Walk forward bar-by-bar. At each bar we only use data up to and including
@@ -79,11 +83,15 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
   let i = warmup
   while (i < candles.length - 1) {
     const window = candles.slice(0, i + 1)
-    const sig = opts.intraday
-      ? ruleSignal(window, { intraday: true, anchorMs: sessionAnchorMs(candles[i].t, isCrypto) })
-      : ruleSignal(window)
+    // Pluggable strategy takes precedence; otherwise fall back to the default
+    // regime-gated rule engine (trend/mean-reversion or the intraday set).
+    const sig = opts.signalFn
+      ? opts.signalFn(window)
+      : opts.intraday
+        ? ruleSignal(window, { intraday: true, anchorMs: sessionAnchorMs(candles[i].t, isCrypto) })
+        : ruleSignal(window)
 
-    if (sig.direction === "NEUTRAL") {
+    if (!sig || sig.direction === "NEUTRAL") {
       i++
       continue
     }
