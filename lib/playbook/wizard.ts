@@ -1,7 +1,7 @@
 // ============================================================================
 // THE WIZARD — beginner-facing front door to the validated roster.
 //
-// The user answers 5 plain-English questions. We secretly score their answers
+// The user answers 7 plain-English questions. We secretly score their answers
 // against the PROVEN_PAIRINGS (the 79 strategy/ticker pairings that survived
 // real-cost backtesting, gold-standard survivors preferred) and hand back the
 // single best-fit pairing — WITHOUT ever revealing the strategy's logic.
@@ -23,6 +23,8 @@ export type HoldPref = "days" | "weeks" | "either"
 export type SwingComfort = "calm" | "some" | "high"
 export type MoverPref = "steady" | "explosive" | "any"
 export type ActivityPref = "weekly" | "often" | "either"
+export type WinStylePref = "winOften" | "biggerWins" | "noPref"
+export type ProofPref = "provenOnly" | "balanced" | "open"
 
 export type WizardAnswers = {
   asset: AssetClassPref
@@ -30,6 +32,8 @@ export type WizardAnswers = {
   comfort: SwingComfort
   mover: MoverPref
   activity: ActivityPref
+  winStyle: WinStylePref
+  proof: ProofPref
 }
 
 export type WizardOption = {
@@ -45,7 +49,7 @@ export type WizardQuestion = {
   options: WizardOption[]
 }
 
-// The 5 questions. Deliberately jargon-free — no "timeframe", "volatility",
+// The 7 questions. Deliberately jargon-free — no "timeframe", "volatility",
 // or "drawdown" language a beginner would not recognize.
 export const WIZARD_QUESTIONS: WizardQuestion[] = [
   {
