@@ -22,7 +22,7 @@ const EXTEND_ATR_MULT = 1.2
 export const aplus15m: Strategy = {
   id: "aplus-15m",
   name: "A+ Multi-Timeframe 15m",
-  family: "trend-pullback",
+  family: "multi-timeframe",
   description:
     "1H trend filter + 15m execution. Requires opening-range break, VWAP/EMA alignment, Supertrend, ADX, RVOL, a pullback and a confirmation candle — all gated at a 90+ score. Stop 1.8 ATR, TP1 0.8R to breakeven, trail to EMA20/Supertrend, target 1.5R.",
   warmup: 60,

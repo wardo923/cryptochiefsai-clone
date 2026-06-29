@@ -67,10 +67,10 @@ type LabResponse = {
 }
 
 const FAMILY_LABEL: Record<string, string> = {
-  multi_timeframe: "Multi-timeframe",
+  "multi-timeframe": "Multi-timeframe",
   breakout: "Breakout",
-  mean_reversion: "Mean reversion",
-  trend: "Trend",
+  "mean-reversion": "Mean reversion",
+  "trend-pullback": "Trend pullback",
 }
 
 export function StrategyLab() {

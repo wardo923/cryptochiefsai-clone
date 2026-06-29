@@ -32,7 +32,7 @@ export type StratSignal = {
 export type Strategy = {
   id: string
   name: string
-  family: "trend-pullback" | "breakout" | "mean-reversion"
+  family: "multi-timeframe" | "trend-pullback" | "breakout" | "mean-reversion"
   description: string
   // Bars of 15m warmup before the strategy may fire.
   warmup: number
