@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { BarChart3, Loader2, TrendingUp, TrendingDown, Info } from "lucide-react"
+import { BarChart3, Loader2, TrendingUp, TrendingDown, Info, ShieldCheck, ShieldAlert, ShieldQuestion } from "lucide-react"
 import type { MarketRow } from "@/lib/market"
 import type { BacktestResult } from "@/lib/backtest"
+import type { WalkForwardResult } from "@/lib/walk-forward"
 import { TIMEFRAMES, DEFAULT_TIMEFRAME, type Timeframe } from "@/lib/timeframe"
 import { cn } from "@/lib/utils"
 
@@ -79,6 +80,142 @@ function Stat({
         {value}
       </div>
       {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
+    </div>
+  )
+}
+
+function FoldBars({ result }: { result: WalkForwardResult }) {
+  const exps = result.folds.map((f) => f.result.expectancy)
+  const maxAbs = Math.max(0.1, ...exps.map((e) => Math.abs(e)))
+  return (
+    <div className="flex items-end gap-1.5">
+      {result.folds.map((f, i) => {
+        const e = f.result.expectancy
+        const pct = (Math.abs(e) / maxAbs) * 100
+        const pos = e > 0
+        return (
+          <div key={i} className="flex flex-1 flex-col items-center gap-1">
+            <div className="flex h-16 w-full items-end justify-center">
+              <div
+                className={cn("w-full rounded-t", pos ? "bg-chart-3" : "bg-destructive")}
+                style={{ height: `${Math.max(6, pct)}%` }}
+                title={`Segment ${i + 1}: ${e}R on ${f.result.trades} trades`}
+              />
+            </div>
+            <span className="text-[10px] tabular-nums text-muted-foreground">{e}R</span>
+            <span className="text-[9px] text-muted-foreground">n{f.result.trades}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function WalkForwardSection({ coin, timeframe }: { coin: MarketRow; timeframe: Timeframe }) {
+  const [wf, setWf] = useState<WalkForwardResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function run() {
+    setLoading(true)
+    setError(null)
+    setWf(null)
+    try {
+      const res = await fetch("/api/walk-forward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coinId: coin.id, timeframe }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? "Failed to run validation")
+      setWf(json.result as WalkForwardResult)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verdictTone =
+    wf?.verdict === "robust" ? "good" : wf?.verdict === "fragile" ? "bad" : "neutral"
+  const VerdictIcon =
+    wf?.verdict === "robust" ? ShieldCheck : wf?.verdict === "fragile" ? ShieldAlert : ShieldQuestion
+
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-secondary/30 p-3">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="size-4 text-primary" />
+        <h3 className="text-sm font-semibold">Walk-forward validation</h3>
+      </div>
+      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        Splits the deep history into ordered time segments and an unseen 30% holdout, then checks whether the edge
+        holds out-of-sample instead of living in one lucky stretch. This is the real test of robustness.
+      </p>
+
+      <button
+        onClick={run}
+        disabled={loading}
+        className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-60"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="size-4 animate-spin" /> Validating…
+          </>
+        ) : (
+          <>Validate {coin.symbol} out-of-sample</>
+        )}
+      </button>
+
+      {error && <div className="mt-3 rounded-lg bg-destructive/10 p-3 text-xs text-destructive">{error}</div>}
+
+      {wf && (
+        <div className="mt-3 flex flex-col gap-3">
+          <div
+            className={cn(
+              "flex items-start gap-2 rounded-lg border p-3",
+              verdictTone === "good" && "border-chart-3/40 bg-chart-3/10",
+              verdictTone === "bad" && "border-destructive/40 bg-destructive/10",
+              verdictTone === "neutral" && "border-border bg-card",
+            )}
+          >
+            <VerdictIcon
+              className={cn(
+                "mt-0.5 size-4 shrink-0",
+                verdictTone === "good" && "text-chart-3",
+                verdictTone === "bad" && "text-destructive",
+              )}
+            />
+            <div>
+              <div className="text-sm font-semibold capitalize">{wf.verdict}</div>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{wf.verdictReason}</p>
+            </div>
+          </div>
+
+          {wf.train && wf.holdout && (
+            <div className="grid grid-cols-2 gap-2">
+              <Stat
+                label="In-sample (train)"
+                value={`${wf.train.expectancy > 0 ? "+" : ""}${wf.train.expectancy}R`}
+                tone={wf.train.expectancy > 0 ? "good" : "bad"}
+                hint={`${wf.train.trades} trades`}
+              />
+              <Stat
+                label="Holdout (unseen)"
+                value={`${wf.holdout.expectancy > 0 ? "+" : ""}${wf.holdout.expectancy}R`}
+                tone={wf.holdout.expectancy > 0 ? "good" : "bad"}
+                hint={`${wf.holdout.trades} trades`}
+              />
+            </div>
+          )}
+
+          <div>
+            <div className="mb-1.5 text-[11px] text-muted-foreground">
+              Per-segment expectancy · {wf.positiveFolds}/{wf.totalFolds} profitable ({wf.consistency}% consistency)
+            </div>
+            <FoldBars result={wf} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -217,6 +354,8 @@ export function BacktestPanel({
               samples are noisy — treat low trade counts with caution. This is research, not financial advice.
             </span>
           </div>
+
+          {coin && <WalkForwardSection coin={coin} timeframe={timeframe} />}
         </div>
       )}
     </div>

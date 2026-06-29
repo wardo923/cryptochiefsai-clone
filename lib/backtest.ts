@@ -12,7 +12,7 @@ export type Trade = {
   exitIndex: number
   exitTime: number
   exitPrice: number
-  outcome: "win" | "loss" | "timeout"
+  outcome: "win" | "loss" | "timeout" | "breakeven"
   rMultiple: number // realized reward in units of initial risk
 }
 
@@ -23,6 +23,7 @@ export type BacktestResult = {
   wins: number
   losses: number
   timeouts: number
+  breakevens: number // trades stopped out at breakeven (only when breakeven on)
   winRate: number // %
   avgRMultiple: number
   expectancy: number // avg R per trade
@@ -46,6 +47,8 @@ type BacktestOptions = {
   cooldown?: number // bars to wait after a trade closes
   intraday?: boolean // use the intraday (VWAP/OR/RVOL) rule set
   isCrypto?: boolean // anchor sessions to UTC day (crypto) vs 09:30 ET (stocks)
+  breakeven?: boolean // move stop to entry once price reaches breakevenAtR favorable
+  breakevenAtR?: number // favorable R that arms the breakeven stop (default 1)
 }
 
 // Walk forward bar-by-bar. At each bar we only use data up to and including
@@ -100,14 +103,22 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
     let exitPrice = candles[exitIndex].c
     let outcome: Trade["outcome"] = "timeout"
 
+    // Breakeven management: once price runs `breakevenAtR` in our favor, the
+    // stop ratchets up to the entry so the trade can no longer lose. Arming is
+    // evaluated at the END of each bar so a single bar can't both arm AND
+    // scratch (that would be look-ahead). `effStop` is the live stop level.
+    const useBE = opts.breakeven === true
+    const beAtR = opts.breakevenAtR ?? 1
+    let effStop = stop
+    let armed = false
+
     for (let j = i + 1; j <= Math.min(i + holdBars, candles.length - 1); j++) {
       const bar = candles[j]
       if (dir === "LONG") {
-        // assume stop checked before target if both hit in same bar (conservative)
-        if (bar.l <= stop) {
+        if (bar.l <= effStop) {
           exitIndex = j
-          exitPrice = stop
-          outcome = "loss"
+          exitPrice = effStop
+          outcome = armed ? "breakeven" : "loss"
           break
         }
         if (bar.h >= target) {
@@ -116,11 +127,15 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
           outcome = "win"
           break
         }
+        if (useBE && !armed && bar.h >= entry + risk * beAtR) {
+          armed = true
+          effStop = entry
+        }
       } else {
-        if (bar.h >= stop) {
+        if (bar.h >= effStop) {
           exitIndex = j
-          exitPrice = stop
-          outcome = "loss"
+          exitPrice = effStop
+          outcome = armed ? "breakeven" : "loss"
           break
         }
         if (bar.l <= target) {
@@ -128,6 +143,10 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
           exitPrice = target
           outcome = "win"
           break
+        }
+        if (useBE && !armed && bar.l <= entry - risk * beAtR) {
+          armed = true
+          effStop = entry
         }
       }
     }
@@ -140,8 +159,8 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
     const fillEntry = dir === "LONG" ? entry + halfSpread : entry - halfSpread
     // Exit: LONG sells down at the bid, SHORT buys up at the ask...
     let fillExit = dir === "LONG" ? exitPrice - halfSpread : exitPrice + halfSpread
-    // ...and stop-outs slip further against you.
-    if (outcome === "loss") {
+    // ...and stop-outs (including breakeven stops) slip further against you.
+    if (outcome === "loss" || outcome === "breakeven") {
       fillExit = dir === "LONG" ? fillExit - slip : fillExit + slip
     }
     const gross = dir === "LONG" ? fillExit - fillEntry : fillEntry - fillExit
@@ -174,6 +193,7 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
   const wins = trades.filter((t) => t.rMultiple > 0).length
   const losses = trades.filter((t) => t.rMultiple < 0).length
   const timeouts = trades.filter((t) => t.outcome === "timeout").length
+  const breakevens = trades.filter((t) => t.outcome === "breakeven").length
   const winRate = trades.length ? (wins / trades.length) * 100 : 0
   const sumR = trades.reduce((a, t) => a + t.rMultiple, 0)
   const avgR = trades.length ? sumR / trades.length : 0
@@ -202,6 +222,7 @@ export function backtest(coinId: string, candles: Candle[], opts: BacktestOption
     wins,
     losses,
     timeouts,
+    breakevens,
     winRate: Number(winRate.toFixed(1)),
     avgRMultiple: Number(avgR.toFixed(3)),
     expectancy: Number(avgR.toFixed(3)),
