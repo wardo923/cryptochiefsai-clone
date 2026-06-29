@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/check-signals",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/forward-test",
+      "schedule": "0 */2 * * *"
     }
   ]
 }

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import useSWR from "swr"
-import { Search, RefreshCw, Activity, Hexagon, ShieldCheck, ChevronDown, EyeOff } from "lucide-react"
+import { Search, RefreshCw, Activity, Hexagon, ShieldCheck, ChevronDown, EyeOff, LineChart } from "lucide-react"
 import type { MarketRow } from "@/lib/market"
 import { MarketTable } from "@/components/market-table"
 import { formatPct } from "@/lib/format"
@@ -83,6 +83,13 @@ export function Portal() {
             <h1 className="text-sm font-semibold leading-tight sm:text-base">Sightline</h1>
             <p className="text-xs text-muted-foreground">Technical signals · all markets</p>
           </div>
+          <Link
+            href="/forward-test"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <LineChart className="size-4" />
+            <span className="hidden sm:inline">Track record</span>
+          </Link>
           <Link
             href="/verify"
             className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
