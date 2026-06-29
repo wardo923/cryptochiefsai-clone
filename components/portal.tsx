@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import useSWR from "swr"
-import { Search, RefreshCw, Activity, Hexagon, ShieldCheck, ChevronDown, EyeOff, LineChart } from "lucide-react"
+import { Search, RefreshCw, Activity, Hexagon, ShieldCheck, ChevronDown, EyeOff, LineChart, FlaskConical } from "lucide-react"
 import type { MarketRow } from "@/lib/market"
 import { MarketTable } from "@/components/market-table"
 import { formatPct } from "@/lib/format"
@@ -96,6 +96,13 @@ export function Portal() {
           >
             <ShieldCheck className="size-4" />
             <span className="hidden sm:inline">Verify</span>
+          </Link>
+          <Link
+            href="/strategy-lab"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <FlaskConical className="size-4" />
+            <span className="hidden sm:inline">Strategy Lab</span>
           </Link>
           <button
             onClick={() => mutate()}
