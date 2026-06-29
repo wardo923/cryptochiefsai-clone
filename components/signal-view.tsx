@@ -16,17 +16,30 @@ import {
 import type { MarketRow } from "@/lib/market"
 import type { TradeSignal } from "@/lib/signal"
 import type { IndicatorSnapshot } from "@/lib/indicators"
-import { formatPrice, formatPct } from "@/lib/format"
+import { formatPrice } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { AlertButton } from "@/components/alert-button"
 import { BacktestPanel } from "@/components/backtest-panel"
-import { TIMEFRAMES, DEFAULT_TIMEFRAME, type Timeframe } from "@/lib/timeframe"
+import { DayTradePanel } from "@/components/day-trade-panel"
+import { TIMEFRAMES, TIMEFRAME_ORDER, DEFAULT_TIMEFRAME, type Timeframe } from "@/lib/timeframe"
 
-type SignalResponse = {
+export type SessionInfo = {
+  phase: string
+  phaseLabel: string
+  noTrade: { blocked: boolean; reason: string | null }
+  isCrypto: boolean
+}
+
+export type SignalResponse = {
   coin: { id: string; symbol: string; name: string }
   indicators: IndicatorSnapshot
   signal: TradeSignal
   mode?: "ai" | "indicator"
+  timeframe: Timeframe
+  intraday?: boolean
+  session?: SessionInfo | null
+  confidenceFloor?: number
+  passesFloor?: boolean
   generatedAt: string
 }
 
@@ -71,19 +84,26 @@ export function SignalView({ assetId, symbol, name }: { assetId: string; symbol:
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
-        {(Object.keys(TIMEFRAMES) as Timeframe[]).map((tf) => (
+      <div className="grid grid-cols-5 gap-1 rounded-lg border border-border bg-card p-1">
+        {TIMEFRAME_ORDER.map((tf) => (
           <button
             key={tf}
             onClick={() => setTimeframe(tf)}
             aria-pressed={timeframe === tf}
             className={cn(
-              "flex h-9 flex-1 flex-col items-center justify-center rounded-md text-xs font-medium transition-colors",
-              timeframe === tf
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground",
+              "relative flex h-10 flex-col items-center justify-center rounded-md text-xs font-medium transition-colors",
+              timeframe === tf ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
+            {TIMEFRAMES[tf].intraday && (
+              <span
+                className={cn(
+                  "absolute right-1 top-1 size-1.5 rounded-full",
+                  timeframe === tf ? "bg-primary-foreground/70" : "bg-chart-3",
+                )}
+                aria-hidden
+              />
+            )}
             <span>{TIMEFRAMES[tf].label}</span>
             <span className="text-[10px] font-normal opacity-80">{TIMEFRAMES[tf].bar}</span>
           </button>
@@ -102,6 +122,7 @@ export function SignalView({ assetId, symbol, name }: { assetId: string; symbol:
 
         {data && (
           <div className="flex flex-col gap-5">
+            {data.intraday && <DayTradePanel data={data} />}
             <SignalResult data={data} />
             <AlertButton assetId={assetId} symbol={symbol} />
           </div>
