@@ -130,6 +130,11 @@ function SignalResult({ data }: { data: SignalResponse }) {
           {dir.label}
         </span>
         <span className="text-sm text-muted-foreground">{signal.timeframe}</span>
+        {indicators.regime && (
+          <span className="rounded-full border border-border bg-secondary/50 px-2.5 py-1 text-xs font-medium capitalize">
+            {indicators.regime} market
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Confidence</span>
           <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
@@ -193,9 +198,9 @@ function SignalResult({ data }: { data: SignalResponse }) {
 function IndicatorGrid({ indicators }: { indicators: IndicatorSnapshot }) {
   const items: [string, string][] = [
     ["RSI(14)", indicators.rsi14 != null ? indicators.rsi14.toFixed(1) : "—"],
+    ["ADX(14)", indicators.adx14 != null ? indicators.adx14.toFixed(1) : "—"],
     ["Trend", indicators.trend],
     ["EMA20", formatPrice(indicators.ema20)],
-    ["EMA50", formatPrice(indicators.ema50)],
     ["MACD hist", indicators.macd ? indicators.macd.histogram.toFixed(4) : "—"],
     ["ATR(14)", indicators.atr14 != null ? indicators.atr14.toFixed(4) : "—"],
     ["Swing high", formatPrice(indicators.recentHigh)],

@@ -48,8 +48,9 @@ async function getYahooDaily(
     const h = q.high?.[i]
     const l = q.low?.[i]
     const c = q.close?.[i]
+    const v = q.volume?.[i]
     if ([o, h, l, c].some((v) => v == null || Number.isNaN(v))) continue
-    out.push({ t: r.timestamp[i] * 1000, o, h, l, c })
+    out.push({ t: r.timestamp[i] * 1000, o, h, l, c, v: typeof v === "number" ? v : undefined })
   }
   return out
 }
