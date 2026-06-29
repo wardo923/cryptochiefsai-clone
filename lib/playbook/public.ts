@@ -2,6 +2,7 @@ import { PLAYBOOK } from "./strategies"
 import { PROVEN_PAIRINGS, type ProvenPairing } from "./mapping"
 import { oosFor, type OosVerdict } from "./validation"
 import { COINS, STOCKS } from "../coins"
+import { type WizardAnswers, isCryptoSymbol, scorePairing, fitReasons } from "./wizard"
 
 // ============================================================================
 // PUBLIC PLAYBOOK DATA — the ONLY shape that crosses into the client.
@@ -24,6 +25,8 @@ export type PublicStrategy = {
 export type PublicPairing = ProvenPairing & {
   strategyName: string
   assetName: string
+  // "crypto" | "stock" — lets the client filter by asset class without logic.
+  assetClass: "crypto" | "stock"
   // Out-of-sample verdict (the gold standard). "robust" earns the survived badge.
   oosVerdict: OosVerdict | "untested"
   oosHoldoutExpectancy: number | null
@@ -60,6 +63,7 @@ function decorate(p: ProvenPairing): PublicPairing {
     ...p,
     strategyName: STRATEGY_NAME[p.strategyId] ?? p.strategyId,
     assetName: NAME_BY_SYMBOL[p.symbol] ?? p.symbol,
+    assetClass: isCryptoSymbol(p.symbol) ? "crypto" : "stock",
     oosVerdict: oos?.verdict ?? "untested",
     oosHoldoutExpectancy: oos?.holdoutExpectancy ?? null,
     oosConsistency: oos?.consistency ?? null,
@@ -92,6 +96,47 @@ export function pairingsForStrategy(strategyId: string): PublicPairing[] {
   return PROVEN_PAIRINGS.filter((p) => p.strategyId === strategyId)
     .map(decorate)
     .sort(byTrust)
+}
+
+// ============================================================================
+// WIZARD MATCHING — turn 5 plain answers into one best-fit PROVEN pairing.
+//
+// We score every validated pairing against the user's answers (asset class,
+// hold length, swing comfort, mover type, check-in frequency), preferring
+// gold-standard out-of-sample survivors, and return the winner + a few
+// alternatives — all decorated (no hidden logic). Returns best:null only when
+// nothing in the validated set fits, so we never fabricate a recommendation.
+// ============================================================================
+
+export type WizardMatch = {
+  best: PublicPairing | null
+  alternatives: PublicPairing[]
+  // Plain-English reasons this fit the user — about market/horizon/risk, never logic.
+  reasons: string[]
+}
+
+export function matchWizard(answers: WizardAnswers): WizardMatch {
+  // Honesty filter: only ever consider pairings in the validated set, scoped to
+  // the asset class the user asked for.
+  const pool = PROVEN_PAIRINGS.filter((p) => {
+    if (answers.asset === "crypto") return isCryptoSymbol(p.symbol)
+    if (answers.asset === "stocks") return !isCryptoSymbol(p.symbol)
+    return true
+  })
+  if (pool.length === 0) return { best: null, alternatives: [], reasons: [] }
+
+  const ranked = pool
+    .map((p) => decorate(p))
+    .map((p) => ({ p, s: scorePairing(p, answers) }))
+    .sort((x, y) => y.s - x.s)
+    .map((x) => x.p)
+
+  const best = ranked[0] ?? null
+  return {
+    best,
+    alternatives: ranked.slice(1, 4),
+    reasons: best ? fitReasons(best, answers) : [],
+  }
 }
 
 // Distinct symbols that have at least one proven strategy, with display info.
