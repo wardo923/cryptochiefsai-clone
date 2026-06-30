@@ -1,8 +1,9 @@
 # Sightline — Master Handoff Prompt for the Replit Agent
 
-Attach these two files from the lab, then paste the prompt below:
+Attach these three files from the lab, then paste the prompt below:
 - `validated-engine.ts`  (the canonical, backtested strategy engine — 79 proven swing/position pairings + scorer + matcher)
 - `SightlineStrategyCard.tsx`  (the result/Desk card + honest position-size risk calculator)
+- `SightlineDeskView.tsx`  (the clean Desk screen — where named, deployed strategies live; self-contained with sample data)
 
 ---
 
@@ -13,6 +14,7 @@ We are fixing a serious code-drift problem. This Replit app is now the **single 
 ### Files
 1. `validated-engine.ts` — the canonical engine. 79 backtested pairings (swing + position only), the 7-question scorer, and `matchWizard()`.
 2. `SightlineStrategyCard.tsx` — the strategy card (honesty stack) + position-size risk calculator. Self-contained, sample data built in.
+3. `SightlineDeskView.tsx` — the Desk screen where a user's named, deployed strategies live. Self-contained, sample data built in. This is the clean Desk layout to match.
 
 ### Required changes (in priority order)
 
