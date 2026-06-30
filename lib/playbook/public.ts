@@ -99,43 +99,51 @@ export function pairingsForStrategy(strategyId: string): PublicPairing[] {
 }
 
 // ============================================================================
-// WIZARD MATCHING — turn 5 plain answers into one best-fit PROVEN pairing.
+// WIZARD MATCHING — turn the plain answers into one best-fit PROVEN pairing.
 //
 // We score every validated pairing against the user's answers (asset class,
-// hold length, swing comfort, mover type, check-in frequency), preferring
-// gold-standard out-of-sample survivors, and return the winner + a few
-// alternatives — all decorated (no hidden logic). Returns best:null only when
-// nothing in the validated set fits, so we never fabricate a recommendation.
+// hold length, swing comfort, mover type, check-in frequency, win style, proof
+// appetite), preferring gold-standard out-of-sample survivors, and return the
+// winner + a few alternatives — all decorated (no hidden logic).
+//
+// The user is ALWAYS mapped to a strategy. The asset preference is treated as a
+// strong nudge inside the scorer, not a hard filter, so the wizard can never
+// dead-end with "nothing fits". Every pairing in the set is a proven survivor,
+// so the worst case is still an honest, validated match.
+//
+// Note on timeframes: the validated set contains ONLY swing (days) and position
+// (weeks) pairings. Scalps and intraday (5m/15m/30m) are deliberately absent —
+// they lost money after real costs in testing — so the wizard can never map a
+// user to a short-term strategy. There is nothing to filter; the data enforces it.
 // ============================================================================
 
 export type WizardMatch = {
-  best: PublicPairing | null
+  best: PublicPairing
   alternatives: PublicPairing[]
   // Plain-English reasons this fit the user — about market/horizon/risk, never logic.
   reasons: string[]
 }
 
 export function matchWizard(answers: WizardAnswers): WizardMatch {
-  // Honesty filter: only ever consider pairings in the validated set, scoped to
-  // the asset class the user asked for.
-  const pool = PROVEN_PAIRINGS.filter((p) => {
-    if (answers.asset === "crypto") return isCryptoSymbol(p.symbol)
-    if (answers.asset === "stocks") return !isCryptoSymbol(p.symbol)
-    return true
-  })
-  if (pool.length === 0) return { best: null, alternatives: [], reasons: [] }
-
-  const ranked = pool
-    .map((p) => decorate(p))
-    .map((p) => ({ p, s: scorePairing(p, answers) }))
+  // Score the FULL validated set so we always have a result. Asset preference is
+  // applied as a strong scoring bonus below rather than removing candidates.
+  const ranked = PROVEN_PAIRINGS.map((p) => decorate(p))
+    .map((p) => {
+      let s = scorePairing(p, answers)
+      // Strong nudge toward the asset class they asked for, without ever
+      // eliminating the other class (keeps a match guaranteed).
+      if (answers.asset === "crypto") s += p.assetClass === "crypto" ? 6 : -6
+      else if (answers.asset === "stocks") s += p.assetClass === "stock" ? 6 : -6
+      return { p, s }
+    })
     .sort((x, y) => y.s - x.s)
     .map((x) => x.p)
 
-  const best = ranked[0] ?? null
+  const best = ranked[0]
   return {
     best,
     alternatives: ranked.slice(1, 4),
-    reasons: best ? fitReasons(best, answers) : [],
+    reasons: fitReasons(best, answers),
   }
 }
 
