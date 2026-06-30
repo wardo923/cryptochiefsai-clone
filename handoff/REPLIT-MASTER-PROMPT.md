@@ -5,6 +5,10 @@ Attach these three files from the lab, then paste the prompt below:
 - `SightlineStrategyCard.tsx`  (the result/Desk card + honest position-size risk calculator)
 - `SightlineDeskView.tsx`  (the clean Desk screen — where named, deployed strategies live; self-contained with sample data)
 
+Also read `SUBSCRIBER-WORTHY.md` — the roadmap of what to build (in order) to make Sightline
+worth paying for monthly, and the anti-features that would destroy the honest brand.
+Run THIS prompt first (correctness), then follow that roadmap.
+
 ---
 
 ## PASTE THIS TO THE REPLIT AGENT
