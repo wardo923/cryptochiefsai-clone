@@ -9,7 +9,6 @@ import {
   Check,
   CircleCheck,
   Compass,
-  Info,
   RotateCcw,
   Sparkles,
   TrendingUp,
@@ -42,18 +41,19 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
   const q = WIZARD_QUESTIONS[step]
 
   // Score on the client — pairings are already stripped of hidden logic.
+  // The user is ALWAYS mapped: we score the full validated set and treat asset
+  // preference as a strong bonus, never a hard filter, so there is no dead-end.
   const match = useMemo(() => {
     if (phase === "questions") return null
     const a = answers as WizardAnswers
-    const pool = pairings.filter((p) => {
-      if (a.asset === "crypto") return p.assetClass === "crypto"
-      if (a.asset === "stocks") return p.assetClass === "stock"
-      return true
-    })
-    if (pool.length === 0) return { best: null, alternatives: [] as PublicPairing[], reasons: [] as string[] }
-    const ranked = [...pool].sort((x, y) => scorePairing(y, a) - scorePairing(x, a))
+    const assetBonus = (p: PublicPairing) => {
+      if (a.asset === "crypto") return p.assetClass === "crypto" ? 6 : -6
+      if (a.asset === "stocks") return p.assetClass === "stock" ? 6 : -6
+      return 0
+    }
+    const ranked = [...pairings].sort((x, y) => scorePairing(y, a) + assetBonus(y) - (scorePairing(x, a) + assetBonus(x)))
     const best = ranked[0]
-    return { best, alternatives: ranked.slice(1, 3), reasons: best ? fitReasons(best, a) : [] }
+    return { best, alternatives: ranked.slice(1, 3), reasons: fitReasons(best, a) }
   }, [phase, answers, pairings])
 
   function choose(value: string) {
@@ -206,31 +206,12 @@ function ResultStep({
   onDeploy,
   onRestart,
 }: {
-  match: { best: PublicPairing | null; alternatives: PublicPairing[]; reasons: string[] }
+  match: { best: PublicPairing; alternatives: PublicPairing[]; reasons: string[] }
   name: string
   setName: (v: string) => void
   onDeploy: () => void
   onRestart: () => void
 }) {
-  if (!match.best) {
-    return (
-      <div className="rounded-xl border border-border bg-card p-6 text-center">
-        <Info className="mx-auto size-7 text-muted-foreground" />
-        <h2 className="mt-3 text-base font-semibold">Nothing proven fits that combination yet</h2>
-        <p className="mx-auto mt-1 max-w-sm text-pretty text-sm text-muted-foreground">
-          We&apos;d rather tell you that than hand you a guess. Try widening one answer — it usually opens up a strong
-          match.
-        </p>
-        <button
-          onClick={onRestart}
-          className="mt-4 inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
-        >
-          <RotateCcw className="size-4" /> Start over
-        </button>
-      </div>
-    )
-  }
-
   const p = match.best
   const survived = p.oosVerdict === "robust"
 
