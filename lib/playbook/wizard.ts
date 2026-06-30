@@ -102,6 +102,26 @@ export const WIZARD_QUESTIONS: WizardQuestion[] = [
       { value: "either", label: "Flexible", desc: "Whatever the strategy needs" },
     ],
   },
+  {
+    id: "winStyle",
+    prompt: "What feels better to you?",
+    help: "Both can be profitable — it's about what keeps you steady.",
+    options: [
+      { value: "winOften", label: "Winning more often", desc: "Frequent small wins, even if each is modest" },
+      { value: "biggerWins", label: "Bigger wins", desc: "Fewer wins, but the winners more than pay for the losers" },
+      { value: "noPref", label: "No preference", desc: "Just match me to the strongest track record" },
+    ],
+  },
+  {
+    id: "proof",
+    prompt: "How much proof do you want behind it?",
+    help: "Our gold standard is a strategy that kept working on data it had never seen.",
+    options: [
+      { value: "provenOnly", label: "Only the most proven", desc: "Stick to gold-standard survivors" },
+      { value: "balanced", label: "Lean proven", desc: "Prefer the most-tested, but stay open" },
+      { value: "open", label: "Show me the best fit", desc: "Match me on fit; I'll read the track record myself" },
+    ],
+  },
 ]
 
 // ----------------------------------------------------------------------------
@@ -148,6 +168,8 @@ export type ScorablePairing = {
   timeframe: "swing" | "position"
   expectancy: number
   maxDrawdownR: number
+  winRate: number
+  profitFactor: number
   oosVerdict?: string
 }
 
@@ -174,9 +196,17 @@ export function scorePairing(p: ScorablePairing, a: WizardAnswers): number {
   if (a.mover === "steady") score += tier === "steady" ? 3 : tier === "moderate" ? 1 : -2
   else if (a.mover === "explosive") score += tier === "explosive" ? 3 : tier === "moderate" ? 1 : -2
 
-  // Gold-standard survivors are the most trustworthy — strong preference.
-  if (p.oosVerdict === "robust") score += 4
-  else if (p.oosVerdict === "fragile") score -= 1
+  // Win style: "win often" rewards higher win rate; "bigger wins" rewards a
+  // higher profit factor (winners outweigh losers). Honest, straight from stats.
+  if (a.winStyle === "winOften") score += p.winRate >= 60 ? 3 : p.winRate >= 50 ? 1 : -1
+  else if (a.winStyle === "biggerWins") score += p.profitFactor >= 1.8 ? 3 : p.profitFactor >= 1.4 ? 1 : -1
+
+  // Proof appetite: gold-standard survivors are always preferred, but how hard
+  // we weight that depends on the user. "provenOnly" makes a survivor decisive.
+  const robust = p.oosVerdict === "robust"
+  const proofWeight = a.proof === "provenOnly" ? 8 : a.proof === "balanced" ? 4 : 2
+  if (robust) score += proofWeight
+  else if (p.oosVerdict === "fragile") score -= a.proof === "provenOnly" ? 4 : 1
 
   // Edge as the final tiebreaker.
   score += p.expectancy * 2
@@ -194,6 +224,9 @@ export function fitReasons(p: ScorablePairing & { maxDrawdownR: number }, a: Wiz
   if (a.mover === "steady" && tier === "steady") r.push("A steadier, established market like you wanted")
   else if (a.mover === "explosive" && tier === "explosive") r.push("A high-energy mover like you wanted")
   if (a.comfort === "calm" && p.maxDrawdownR <= 5) r.push("Kept its worst losing streak small")
+  if (a.winStyle === "winOften" && p.winRate >= 60) r.push(`Wins often — ${p.winRate}% of trades closed green`)
+  else if (a.winStyle === "biggerWins" && p.profitFactor >= 1.8)
+    r.push(`Winners outweigh losers — ${p.profitFactor}x profit factor`)
   if (p.oosVerdict === "robust") r.push("Survived testing on data it had never seen — the gold standard")
   return r
 }
