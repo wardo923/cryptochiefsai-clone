@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import useSWR from "swr"
-import { Search, RefreshCw, Activity, Hexagon, ShieldCheck, ChevronDown, EyeOff, LineChart, FlaskConical, BookOpen } from "lucide-react"
+import { Search, RefreshCw, Activity, Hexagon, ShieldCheck, ChevronDown, EyeOff, LineChart, FlaskConical, BookOpen, Compass, LayoutGrid, ArrowRight } from "lucide-react"
 import type { MarketRow } from "@/lib/market"
 import { MarketTable } from "@/components/market-table"
 import { formatPct } from "@/lib/format"
@@ -122,7 +122,46 @@ export function Portal() {
         </div>
       </header>
 
+      <section className="flex flex-col gap-4 px-4 pt-6 sm:px-6">
+        <div className="flex flex-col gap-2">
+          <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+            <ShieldCheck className="size-3.5 text-primary" />
+            Only proven, backtested strategies
+          </span>
+          <h2 className="text-balance text-2xl font-semibold leading-tight sm:text-3xl">
+            Get matched to a strategy that fits how you actually trade.
+          </h2>
+          <p className="max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground">
+            Answer a few questions and we&apos;ll match you to a swing or position strategy that survived
+            out-of-sample testing. No predictions, no signals to chase &mdash; just a plan you can run.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Link
+            href="/wizard"
+            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            <Compass className="size-4" />
+            Find your strategy
+            <ArrowRight className="size-4" />
+          </Link>
+          <Link
+            href="/desk"
+            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-card px-5 text-sm font-semibold transition-colors hover:border-ring"
+          >
+            <LayoutGrid className="size-4 text-primary" />
+            My Desk
+          </Link>
+        </div>
+      </section>
+
       <section className="flex flex-col gap-3 p-4 sm:px-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Live markets</h3>
+            <p className="text-xs text-muted-foreground">Context only &mdash; not a list of things to buy.</p>
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-48 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
