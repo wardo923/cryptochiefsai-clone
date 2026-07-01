@@ -122,35 +122,66 @@ export function Portal() {
         </div>
       </header>
 
-      <section className="flex flex-col gap-4 px-4 pt-6 sm:px-6">
-        <div className="flex flex-col gap-2">
-          <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-            <ShieldCheck className="size-3.5 text-primary" />
-            Only proven, backtested strategies
-          </span>
-          <h2 className="text-balance text-2xl font-semibold leading-tight sm:text-3xl">
-            Get matched to a strategy that fits how you actually trade.
-          </h2>
-          <p className="max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground">
-            Answer a few questions and we&apos;ll match you to a swing or position strategy that survived
-            out-of-sample testing. No predictions, no signals to chase &mdash; just a plan you can run.
-          </p>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
+      <section className="flex flex-col gap-3 px-4 pt-5 sm:px-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Link
             href="/wizard"
-            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+            className="group flex flex-col gap-2 rounded-xl border border-primary/40 bg-primary/5 p-4 transition-colors hover:border-primary"
           >
-            <Compass className="size-4" />
-            Find your strategy
-            <ArrowRight className="size-4" />
+            <div className="flex items-center justify-between">
+              <span className="flex size-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                <Compass className="size-5" />
+              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Step 1</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 text-sm font-semibold">
+                Wizard <ArrowRight className="size-3.5 text-primary transition-transform group-hover:translate-x-0.5" />
+              </div>
+              <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
+                Answer a few questions, get matched to a proven strategy.
+              </p>
+            </div>
           </Link>
+
+          <Link
+            href="/playbook"
+            className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-ring"
+          >
+            <div className="flex items-center justify-between">
+              <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-foreground">
+                <LayoutGrid className="size-5" />
+              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Step 2</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 text-sm font-semibold">
+                Matrix <ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              </div>
+              <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
+                Browse every validated strategy and its real track record.
+              </p>
+            </div>
+          </Link>
+
           <Link
             href="/desk"
-            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-card px-5 text-sm font-semibold transition-colors hover:border-ring"
+            className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-ring"
           >
-            <LayoutGrid className="size-4 text-primary" />
-            My Desk
+            <div className="flex items-center justify-between">
+              <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-foreground">
+                <BookOpen className="size-5" />
+              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Step 3</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 text-sm font-semibold">
+                Desk <ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              </div>
+              <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
+                Your deployed strategies, watched for you condition by condition.
+              </p>
+            </div>
           </Link>
         </div>
       </section>
