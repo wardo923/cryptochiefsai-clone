@@ -20,9 +20,19 @@ We are fixing a serious code-drift problem. This Replit app is now the **single 
 2. `SightlineStrategyCard.tsx` — the strategy card (honesty stack) + position-size risk calculator. Self-contained, sample data built in.
 3. `SightlineDeskView.tsx` — the Desk screen where a user's named, deployed strategies live. Self-contained, sample data built in. This is the clean Desk layout to match.
 
+### ⛔ CRITICAL BUG TO KILL FIRST — the "No approved match" / validation-gate screen
+
+If the app EVER shows a screen like "No strategy passed the validation gate," "No approved match,"
+"minimum 65-point fit," or "10 calibration dimensions" — DELETE that screen and the logic behind it.
+That behavior is fabricated; it does NOT exist in `validated-engine.ts` and must never exist.
+
+- There is **no score threshold, no 65-point minimum, and no "calibration dimensions"** in the real engine.
+- `matchWizard(answers)` ALWAYS returns a best-fit pairing (`ranked[0]`) — it can never return null and can never "fail."
+- The wizard's final step must render the matched strategy card from `matchWizard()`. There is no "no match" branch. Remove any `if (!match) return <NoMatch/>` code path entirely.
+
 ### Required changes (in priority order)
 
-1. **Replace strategy assignment entirely.** Delete the old `pickStrategy()` / assignment switch. ALL assignment must go through `matchWizard(answers)` from `validated-engine.ts`. Remove the old switch once nothing references it.
+1. **Replace strategy assignment entirely.** Delete the old `pickStrategy()` / assignment switch AND any custom "validation gate"/threshold logic. ALL assignment must go through `matchWizard(answers)` from `validated-engine.ts`. Remove the old switch once nothing references it.
 
 2. **Remove intraday strategies from every assignable path.** The opening-range breakout (ORB), intraday pullback/momentum (MOMO), and range-fade (RFADE) strategies are NOT in the validated set — they lost money after real trading costs. The app must NEVER assign them. Make them unreachable from assignment.
 
