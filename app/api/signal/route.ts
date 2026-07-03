@@ -114,6 +114,11 @@ export async function POST(req: Request) {
       mode = "indicator"
     }
 
+    // Compact price series for the Desk chart: last ~90 closes with timestamps.
+    // Kept small so the card can render a live chart without a second request.
+    const tail = candles.slice(-90)
+    const series = tail.map((c) => ({ t: c.t, c: c.c }))
+
     return Response.json({
       coin,
       indicators: snap,
@@ -122,6 +127,7 @@ export async function POST(req: Request) {
       timeframe,
       intraday,
       session,
+      series,
       confidenceFloor: ALERT_CONFIDENCE_MIN,
       passesFloor: (signal?.confidence ?? 0) >= ALERT_CONFIDENCE_MIN && signal?.direction !== "NEUTRAL",
       generatedAt: new Date().toISOString(),

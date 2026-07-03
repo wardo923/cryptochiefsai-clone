@@ -3,13 +3,17 @@
 import useSWR from "swr"
 import { Compass, Loader2, BellRing, ArrowUpRight, ArrowDownRight, Radio, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatPrice } from "@/lib/format"
 import type { TradeSignal } from "@/lib/signal"
+
+type SeriesPoint = { t: number; c: number }
 
 type SignalResponse = {
   signal: TradeSignal
   mode: "ai" | "indicator"
   passesFloor: boolean
   confidenceFloor: number
+  series?: SeriesPoint[]
   generatedAt: string
 }
 
@@ -38,17 +42,145 @@ function deriveStage(data: SignalResponse | undefined): Stage {
   return "watching"
 }
 
-const STAGE_META: Record<Stage, { index: number; label: string; tone: string; track: string }> = {
-  watching: { index: 0, label: "Watching", tone: "text-muted-foreground", track: "bg-muted-foreground/40" },
-  "lining-up": { index: 1, label: "Lining up", tone: "text-chart-4", track: "bg-chart-4" },
-  live: { index: 2, label: "Signal live", tone: "text-chart-3", track: "bg-chart-3" },
+// Resolve the accent colour for the current state. LONG lives glow green,
+// SHORT lives glow red, lining-up is amber, watching is muted.
+function stageColor(stage: Stage, dir: TradeSignal["direction"] | undefined): string {
+  if (stage === "live") return dir === "SHORT" ? "var(--color-destructive)" : "var(--color-chart-3)"
+  if (stage === "lining-up") return "var(--color-chart-4)"
+  return "var(--color-muted-foreground)"
 }
 
-const STEPS: { key: Stage; label: string }[] = [
-  { key: "watching", label: "Watching" },
-  { key: "lining-up", label: "Lining up" },
-  { key: "live", label: "Signal live" },
-]
+const STAGE_LABEL: Record<Stage, string> = {
+  watching: "Watching",
+  "lining-up": "Lining up",
+  live: "Signal live",
+}
+
+// ---------------------------------------------------------------------------
+// The chart — the hero of the card. Plots the recent price line, tinted by the
+// live state, and overlays the strategy's entry band, stop and first target as
+// dashed reference lines the moment a setup fires so you can see the plan on
+// the chart itself.
+// ---------------------------------------------------------------------------
+function LiveChart({
+  series,
+  stage,
+  signal,
+  color,
+}: {
+  series: SeriesPoint[]
+  stage: Stage
+  signal: TradeSignal | undefined
+  color: string
+}) {
+  const W = 600
+  const H = 200
+  const PAD = 6
+
+  const closes = series.map((p) => p.c)
+  const live = stage === "live" && signal
+  // When a setup is live, fold the plan levels into the vertical domain so the
+  // dashed entry/stop/target lines are always visible on the chart.
+  const domainVals = [...closes]
+  if (live && signal) {
+    domainVals.push(signal.entry.low, signal.entry.high, signal.stopLoss)
+    if (signal.targets[0]) domainVals.push(signal.targets[0].price)
+  }
+  const min = Math.min(...domainVals)
+  const max = Math.max(...domainVals)
+  const range = max - min || 1
+  const x = (i: number) => PAD + (i / (closes.length - 1)) * (W - PAD * 2)
+  const y = (v: number) => PAD + (1 - (v - min) / range) * (H - PAD * 2)
+
+  const linePts = closes.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")
+  const areaPts = `${PAD},${H - PAD} ${linePts} ${(W - PAD).toFixed(1)},${H - PAD}`
+  const lastX = x(closes.length - 1)
+  const lastY = y(closes[closes.length - 1])
+  const gid = `deskgrad-${stage}-${signal?.direction ?? "n"}`
+
+  const levelLine = (v: number, stroke: string, label: string, dashed = true) => {
+    const yy = y(v)
+    // Keep the label inside the chart: below the line if it's near the top edge,
+    // above it otherwise, so the topmost/bottommost levels never clip.
+    const labelY = yy < 16 ? yy + 12 : yy - 3
+    return (
+      <g>
+        <line
+          x1={PAD}
+          x2={W - PAD}
+          y1={yy}
+          y2={yy}
+          stroke={stroke}
+          strokeWidth={1.25}
+          strokeDasharray={dashed ? "5 4" : undefined}
+          opacity={0.9}
+        />
+        <text x={PAD + 3} y={labelY} fontSize={11} fill={stroke} className="font-medium tabular-nums">
+          {label}
+        </text>
+      </g>
+    )
+  }
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="h-32 w-full sm:h-36"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={`Live price chart, ${STAGE_LABEL[stage].toLowerCase()}`}
+    >
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.22} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+
+      {/* price area + line */}
+      <polygon points={areaPts} fill={`url(#${gid})`} stroke="none" />
+      <polyline
+        points={linePts}
+        fill="none"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+
+      {/* plan overlays once a setup is live */}
+      {live && signal && (
+        <>
+          {/* entry band */}
+          <rect
+            x={PAD}
+            width={W - PAD * 2}
+            y={Math.min(y(signal.entry.high), y(signal.entry.low))}
+            height={Math.abs(y(signal.entry.low) - y(signal.entry.high)) || 1}
+            fill={color}
+            opacity={0.1}
+          />
+          {levelLine(signal.stopLoss, "var(--color-destructive)", `Stop ${formatPrice(signal.stopLoss)}`)}
+          {signal.targets[0] &&
+            levelLine(signal.targets[0].price, "var(--color-chart-3)", `Target ${formatPrice(signal.targets[0].price)}`)}
+          {levelLine(signal.entry.high, color, `Entry ${formatPrice(signal.entry.high)}`)}
+        </>
+      )}
+
+      {/* current price marker */}
+      <circle cx={lastX} cy={lastY} r={3.5} fill={color} vectorEffect="non-scaling-stroke" />
+      {stage !== "watching" && <circle cx={lastX} cy={lastY} r={7} fill={color} opacity={0.25}>
+        <animate attributeName="r" values="4;9;4" dur="1.8s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="0.35;0;0.35" dur="1.8s" repeatCount="indefinite" />
+      </circle>}
+    </svg>
+  )
+}
+
+function ChartSkeleton() {
+  return <div className="h-32 w-full animate-pulse bg-secondary/50 sm:h-36" aria-hidden />
+}
 
 export function DeskSignalPath({
   coinId,
@@ -59,52 +191,48 @@ export function DeskSignalPath({
   timeframe: "swing" | "position"
   assetName: string
 }) {
-  const { data, error, isLoading, isValidating, mutate } = useSWR(
-    ["signal", coinId, timeframe],
-    fetchSignal,
-    {
-      // Feels live without hammering the model: re-check on an interval and on focus.
-      refreshInterval: 90_000,
-      revalidateOnFocus: true,
-      dedupingInterval: 30_000,
-      keepPreviousData: true,
-      shouldRetryOnError: false,
-    },
-  )
+  const { data, error, isLoading, isValidating, mutate } = useSWR(["signal", coinId, timeframe], fetchSignal, {
+    // Feels live without hammering the model: re-check on an interval and on focus.
+    refreshInterval: 90_000,
+    revalidateOnFocus: true,
+    dedupingInterval: 30_000,
+    keepPreviousData: true,
+    shouldRetryOnError: false,
+  })
 
   const stage = deriveStage(data)
-  const meta = STAGE_META[stage]
-  const activeIndex = meta.index
   const isLive = stage === "live"
   const dir = data?.signal.direction
+  const color = stageColor(stage, dir)
+  const series = data?.series ?? []
 
   return (
     <div
       className={cn(
         "border-t border-border transition-colors",
         isLive && "bg-chart-3/5",
+        isLive && dir === "SHORT" && "bg-destructive/5",
         stage === "lining-up" && "bg-chart-4/5",
       )}
     >
       {/* Header row: what the Clerk is doing right now */}
       <div className="flex items-center justify-between gap-3 px-4 pt-3">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="relative flex size-2.5 shrink-0">
             <span
               className={cn(
                 "absolute inline-flex size-full rounded-full opacity-75",
-                isLive ? "animate-ping bg-chart-3" : stage === "lining-up" ? "animate-ping bg-chart-4" : "bg-transparent",
+                stage !== "watching" ? "animate-ping" : "",
               )}
+              style={{ backgroundColor: stage !== "watching" ? color : "transparent" }}
             />
             <span
-              className={cn(
-                "relative inline-flex size-2.5 rounded-full",
-                isLive ? "bg-chart-3" : stage === "lining-up" ? "bg-chart-4" : "bg-muted-foreground/50",
-              )}
+              className="relative inline-flex size-2.5 rounded-full"
+              style={{ backgroundColor: stage === "watching" ? "var(--color-muted-foreground)" : color }}
             />
           </span>
-          <p className={cn("truncate text-xs font-semibold", meta.tone)}>
-            {isLoading && !data ? "Clerk is checking the market…" : `Clerk · ${meta.label}`}
+          <p className="truncate text-xs font-semibold" style={{ color }}>
+            {isLoading && !data ? "Clerk is checking the market…" : `Clerk · ${STAGE_LABEL[stage]}`}
           </p>
         </div>
         <button
@@ -116,88 +244,56 @@ export function DeskSignalPath({
         </button>
       </div>
 
-      {/* The path: three stops the setup moves through, colouring as it advances */}
-      <div className="px-4 py-3" role="group" aria-label="Signal path">
-        <div className="flex items-center">
-          {STEPS.map((step, i) => {
-            const reached = i <= activeIndex
-            const isCurrent = i === activeIndex
-            return (
-              <div key={step.key} className="flex flex-1 items-center last:flex-none">
-                <div className="flex flex-col items-center gap-1">
-                  <span
-                    className={cn(
-                      "flex size-3 items-center justify-center rounded-full transition-colors",
-                      reached ? meta.track : "bg-border",
-                      isCurrent && "ring-4 ring-offset-0",
-                      isCurrent && isLive && "ring-chart-3/25",
-                      isCurrent && stage === "lining-up" && "ring-chart-4/25",
-                      isCurrent && stage === "watching" && "ring-muted-foreground/15",
-                    )}
-                  />
-                  <span
-                    className={cn(
-                      "text-[10px] font-medium whitespace-nowrap",
-                      reached ? meta.tone : "text-muted-foreground/50",
-                    )}
-                  >
-                    {step.label}
-                  </span>
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div className="mx-1 h-0.5 flex-1 rounded-full bg-border -mt-4">
-                    <div
-                      className={cn("h-full rounded-full transition-all", i < activeIndex ? meta.track : "w-0")}
-                      style={{ width: i < activeIndex ? "100%" : "0%" }}
-                    />
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+      {/* The chart — the main feature. Colours shift with the live state. */}
+      <div className="mt-2">
+        {error ? (
+          <div className="flex h-32 items-center justify-center px-4 sm:h-36">
+            <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+              Couldn&apos;t reach the market just now.
+              <br />
+              The Clerk will keep trying.
+            </p>
+          </div>
+        ) : series.length >= 2 ? (
+          <LiveChart series={series} stage={stage} signal={data?.signal} color={color} />
+        ) : (
+          <ChartSkeleton />
+        )}
       </div>
 
       {/* Payload row: the Clerk's message for the current state */}
-      <div className="px-4 pb-3">
-        {error ? (
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Couldn&apos;t reach the market just now. The Clerk will keep trying.
-          </p>
-        ) : isLive && data ? (
+      <div className="px-4 pb-3 pt-1">
+        {isLive && data ? (
           <div
             role="status"
             aria-live="polite"
-            className="flex items-start gap-2 rounded-lg border border-chart-3/30 bg-chart-3/10 px-3 py-2.5"
+            className={cn(
+              "flex items-start gap-2 rounded-lg border px-3 py-2.5",
+              dir === "SHORT"
+                ? "border-destructive/30 bg-destructive/10"
+                : "border-chart-3/30 bg-chart-3/10",
+            )}
           >
-            <BellRing className="mt-0.5 size-4 shrink-0 text-chart-3" />
+            <BellRing className="mt-0.5 size-4 shrink-0" style={{ color }} />
             <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-chart-3">
-                {dir === "LONG" ? (
-                  <ArrowUpRight className="size-3.5" />
-                ) : (
-                  <ArrowDownRight className="size-3.5" />
-                )}
+              <p className="flex items-center gap-1.5 text-xs font-semibold" style={{ color }}>
+                {dir === "LONG" ? <ArrowUpRight className="size-3.5" /> : <ArrowDownRight className="size-3.5" />}
                 {dir} setup is live on {assetName}
                 <span className="font-normal text-muted-foreground">· {data.signal.confidence}% conviction</span>
               </p>
               <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{data.signal.summary}</p>
-              <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">
-                Entry ${data.signal.entry.low.toLocaleString()} – ${data.signal.entry.high.toLocaleString()} · Stop $
-                {data.signal.stopLoss.toLocaleString()}
-              </p>
             </div>
           </div>
         ) : stage === "lining-up" && data ? (
           <p className="flex items-center gap-1.5 text-[11px] leading-relaxed text-chart-4">
             <Radio className="size-3.5 shrink-0" />
-            Conditions are starting to line up ({data.signal.confidence}% conviction). The Clerk will alert you the
-            moment it crosses the line.
+            Conditions are lining up ({data.signal.confidence}% conviction). The Clerk alerts you the moment it crosses
+            the line.
           </p>
         ) : (
           <p className="flex items-center gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
             <Compass className="size-3.5 shrink-0 text-primary" />
-            Your Clerk is watching {assetName} for your conditions to line up. Nothing to do until it alerts.
+            Your Clerk is watching {assetName}. Nothing to do until the chart lights up.
           </p>
         )}
       </div>
