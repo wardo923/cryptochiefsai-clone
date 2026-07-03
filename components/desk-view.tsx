@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { BadgeCheck, Plus, Trash2, TrendingUp, Compass, Info } from "lucide-react"
+import { BadgeCheck, Plus, Trash2, TrendingUp, Compass, Info, ArrowRight, Snowflake } from "lucide-react"
 import { getDesk, removeFromDesk, type DeskItem } from "@/lib/desk"
+import { getPlan, isFrozen, type PlanState } from "@/lib/plan"
 import { DeskSignalPath } from "@/components/desk-signal-path"
 
 const TF_LABEL: Record<string, string> = {
@@ -13,21 +14,28 @@ const TF_LABEL: Record<string, string> = {
 
 export function DeskView() {
   const [items, setItems] = useState<DeskItem[]>([])
+  const [plan, setPlan] = useState<PlanState | null>(null)
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
     const sync = () => setItems(getDesk())
+    const syncPlan = () => setPlan(getPlan())
     sync()
+    syncPlan()
     setReady(true)
     window.addEventListener("desk:changed", sync)
     window.addEventListener("storage", sync)
+    window.addEventListener("plan:changed", syncPlan)
     return () => {
       window.removeEventListener("desk:changed", sync)
       window.removeEventListener("storage", sync)
+      window.removeEventListener("plan:changed", syncPlan)
     }
   }, [])
 
   if (!ready) return null
+
+  const frozen = plan ? isFrozen(plan) : false
 
   if (items.length === 0) {
     return (
@@ -54,6 +62,23 @@ export function DeskView() {
 
   return (
     <div className="flex flex-col gap-4 px-4 py-5 sm:px-6">
+      {frozen && (
+        <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
+            <Snowflake className="size-4" /> Your subscription expired
+          </div>
+          <p className="mt-1 text-pretty text-xs text-muted-foreground">
+            Your Desk is still here, but live monitoring is paused. Upgrade to resume live Path updates and alerts.
+          </p>
+          <Link
+            href="/plan"
+            className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            Upgrade to resume live monitoring <ArrowRight className="size-3.5" />
+          </Link>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {items.length} strateg{items.length === 1 ? "y" : "ies"} deployed
@@ -68,7 +93,7 @@ export function DeskView() {
 
       <div className="flex flex-col gap-3">
         {items.map((item) => (
-          <DeskCard key={item.id} item={item} onRemove={() => removeFromDesk(item.id)} />
+          <DeskCard key={item.id} item={item} frozen={frozen} onRemove={() => removeFromDesk(item.id)} />
         ))}
       </div>
 
@@ -84,9 +109,9 @@ export function DeskView() {
   )
 }
 
-function DeskCard({ item, onRemove }: { item: DeskItem; onRemove: () => void }) {
+function DeskCard({ item, frozen, onRemove }: { item: DeskItem; frozen: boolean; onRemove: () => void }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+    <div className={`overflow-hidden rounded-2xl border border-border bg-card ${frozen ? "opacity-90" : ""}`}>
       <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -119,7 +144,7 @@ function DeskCard({ item, onRemove }: { item: DeskItem; onRemove: () => void }) 
         <Metric label="Edge / trade" value={`${item.expectancy > 0 ? "+" : ""}${item.expectancy}R`} tone="good" />
         <Metric label="Profit factor" value={item.profitFactor.toFixed(2)} tone="good" />
       </div>
-      <DeskSignalPath coinId={item.symbol} timeframe={item.timeframe} assetName={item.assetName} />
+      <DeskSignalPath coinId={item.symbol} timeframe={item.timeframe} assetName={item.assetName} frozen={frozen} />
     </div>
   )
 }

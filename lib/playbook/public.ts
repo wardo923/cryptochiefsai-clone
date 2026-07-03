@@ -147,6 +147,68 @@ export function matchWizard(answers: WizardAnswers): WizardMatch {
   }
 }
 
+// ============================================================================
+// SYSTEM ASSIGNMENT — assign ONE trading system, then expose the markets that
+// system supports. Used by the wizard's "Your Path is Ready" → market-select
+// flow. The user never sees strategy internals; they see the assigned system's
+// name and the list of markets it has been proven on.
+// ============================================================================
+
+export type AssignedSystem = {
+  strategyId: string
+  strategyName: string
+  timeframe: "swing" | "position"
+  // Plain-English reasons this system fits the user (about pace/risk, no logic).
+  reasons: string[]
+  // Aggregate track record of the winning pairing (for the reveal card).
+  winRate: number
+  expectancy: number
+  profitFactor: number
+  survived: boolean
+  trades: number
+  // The markets this system supports — one PublicPairing per market.
+  markets: PublicPairing[]
+}
+
+export function assignSystem(answers: WizardAnswers): AssignedSystem {
+  const { best, reasons } = matchWizard(answers)
+
+  // Every market this system was proven on, at the assigned timeframe. If that
+  // roster is thin, broaden to all timeframes so there's always a real choice.
+  let markets = PROVEN_PAIRINGS.filter(
+    (p) => p.strategyId === best.strategyId && p.timeframe === best.timeframe,
+  ).map(decorate)
+  if (markets.length < 2) {
+    markets = PROVEN_PAIRINGS.filter((p) => p.strategyId === best.strategyId).map(decorate)
+  }
+
+  // Respect the user's asset-class preference as a sort nudge (crypto/stocks
+  // first) without hiding the other class — the system is what's fixed here.
+  const pref = answers.asset
+  markets.sort((a, b) => {
+    if (pref === "crypto" || pref === "stocks") {
+      const want = pref === "crypto" ? "crypto" : "stock"
+      const aw = a.assetClass === want ? 0 : 1
+      const bw = b.assetClass === want ? 0 : 1
+      if (aw !== bw) return aw - bw
+    }
+    return byTrust(a, b)
+  })
+
+  return {
+    strategyId: best.strategyId,
+    strategyName: best.strategyName,
+    timeframe: best.timeframe,
+    reasons,
+    winRate: best.winRate,
+    expectancy: best.expectancy,
+    profitFactor: best.profitFactor,
+    survived: best.oosVerdict === "robust",
+    trades: best.trades,
+    markets,
+  }
+}
+
 // Distinct symbols that have at least one proven strategy, with display info.
 export function provenAssets(): { symbol: string; name: string; count: number }[] {
   const symbols = Array.from(new Set(PROVEN_PAIRINGS.map((p) => p.symbol)))

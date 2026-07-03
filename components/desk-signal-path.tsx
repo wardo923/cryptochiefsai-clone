@@ -1,7 +1,8 @@
 "use client"
 
 import useSWR from "swr"
-import { Compass, Loader2, BellRing, ArrowUpRight, ArrowDownRight, Radio, RefreshCw } from "lucide-react"
+import Link from "next/link"
+import { Compass, Loader2, BellRing, ArrowUpRight, ArrowDownRight, Radio, RefreshCw, PauseCircle, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatPrice } from "@/lib/format"
 import type { TradeSignal } from "@/lib/signal"
@@ -182,19 +183,54 @@ function ChartSkeleton() {
   return <div className="h-32 w-full animate-pulse bg-secondary/50 sm:h-36" aria-hidden />
 }
 
+function KeyLevel({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
+  return (
+    <div className="rounded-lg bg-secondary/50 px-2 py-1.5 text-center">
+      <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div
+        className={cn(
+          "mt-0.5 text-xs font-semibold tabular-nums",
+          tone === "good" && "text-chart-3",
+          tone === "bad" && "text-destructive",
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  )
+}
+
+// Compact relative timestamp for "last update" (e.g. "just now", "3m ago").
+function formatUpdatedAt(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ""
+  const diff = Date.now() - then
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 export function DeskSignalPath({
   coinId,
   timeframe,
   assetName,
+  frozen = false,
 }: {
   coinId: string
   timeframe: "swing" | "position"
   assetName: string
+  frozen?: boolean
 }) {
   const { data, error, isLoading, isValidating, mutate } = useSWR(["signal", coinId, timeframe], fetchSignal, {
     // Feels live without hammering the model: re-check on an interval and on focus.
-    refreshInterval: 90_000,
-    revalidateOnFocus: true,
+    // When the account is frozen we stop polling entirely — the last known Path
+    // stays on screen, but no new updates are fetched.
+    refreshInterval: frozen ? 0 : 90_000,
+    revalidateOnFocus: !frozen,
+    revalidateIfStale: !frozen,
     dedupingInterval: 30_000,
     keepPreviousData: true,
     shouldRetryOnError: false,
@@ -205,43 +241,60 @@ export function DeskSignalPath({
   const dir = data?.signal.direction
   const color = stageColor(stage, dir)
   const series = data?.series ?? []
+  const lastUpdated = data?.generatedAt ? formatUpdatedAt(data.generatedAt) : null
 
   return (
     <div
       className={cn(
         "border-t border-border transition-colors",
-        isLive && "bg-chart-3/5",
-        isLive && dir === "SHORT" && "bg-destructive/5",
-        stage === "lining-up" && "bg-chart-4/5",
+        !frozen && isLive && "bg-chart-3/5",
+        !frozen && isLive && dir === "SHORT" && "bg-destructive/5",
+        !frozen && stage === "lining-up" && "bg-chart-4/5",
       )}
     >
       {/* Header row: what the Clerk is doing right now */}
       <div className="flex items-center justify-between gap-3 px-4 pt-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="relative flex size-2.5 shrink-0">
-            <span
-              className={cn(
-                "absolute inline-flex size-full rounded-full opacity-75",
-                stage !== "watching" ? "animate-ping" : "",
-              )}
-              style={{ backgroundColor: stage !== "watching" ? color : "transparent" }}
-            />
-            <span
-              className="relative inline-flex size-2.5 rounded-full"
-              style={{ backgroundColor: stage === "watching" ? "var(--color-muted-foreground)" : color }}
-            />
-          </span>
-          <p className="truncate text-xs font-semibold" style={{ color }}>
-            {isLoading && !data ? "Clerk is checking the market…" : `Clerk · ${STAGE_LABEL[stage]}`}
-          </p>
+        {frozen ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <PauseCircle className="size-3.5 shrink-0 text-muted-foreground" />
+            <p className="truncate text-xs font-semibold text-muted-foreground">Updates Paused</p>
+          </div>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="relative flex size-2.5 shrink-0">
+              <span
+                className={cn(
+                  "absolute inline-flex size-full rounded-full opacity-75",
+                  stage !== "watching" ? "animate-ping" : "",
+                )}
+                style={{ backgroundColor: stage !== "watching" ? color : "transparent" }}
+              />
+              <span
+                className="relative inline-flex size-2.5 rounded-full"
+                style={{ backgroundColor: stage === "watching" ? "var(--color-muted-foreground)" : color }}
+              />
+            </span>
+            <p className="truncate text-xs font-semibold" style={{ color }}>
+              {isLoading && !data ? "Clerk is checking the market…" : `Clerk · ${STAGE_LABEL[stage]}`}
+            </p>
+          </div>
+        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {lastUpdated && (
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              {frozen ? "Last update" : "Updated"} {lastUpdated}
+            </span>
+          )}
+          {!frozen && (
+            <button
+              onClick={() => mutate()}
+              aria-label="Re-check now"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {isValidating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+            </button>
+          )}
         </div>
-        <button
-          onClick={() => mutate()}
-          aria-label="Re-check now"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {isValidating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-        </button>
       </div>
 
       {/* The chart — the main feature. Colours shift with the live state. */}
@@ -261,9 +314,38 @@ export function DeskSignalPath({
         )}
       </div>
 
+      {/* Key levels — the plan on the market, shown whenever a setup is live. */}
+      {isLive && data && (
+        <div className="grid grid-cols-3 gap-2 px-4 pt-2">
+          <KeyLevel label="Entry" value={formatPrice(data.signal.entry.high)} />
+          <KeyLevel label="Stop" value={formatPrice(data.signal.stopLoss)} tone="bad" />
+          {data.signal.targets[0] && (
+            <KeyLevel label="Target" value={formatPrice(data.signal.targets[0].price)} tone="good" />
+          )}
+        </div>
+      )}
+
       {/* Payload row: the Clerk's message for the current state */}
       <div className="px-4 pb-3 pt-1">
-        {isLive && data ? (
+        {frozen ? (
+          <div
+            role="status"
+            className="flex flex-col gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2.5"
+          >
+            <div className="flex items-start gap-2">
+              <PauseCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                I&apos;m no longer monitoring this market. Upgrade your plan to resume live Path updates and alerts.
+              </p>
+            </div>
+            <Link
+              href="/plan"
+              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              Upgrade <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
+        ) : isLive && data ? (
           <div
             role="status"
             aria-live="polite"
