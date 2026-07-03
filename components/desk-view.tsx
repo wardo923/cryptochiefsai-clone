@@ -92,6 +92,26 @@ export function DeskView() {
         </Link>
       </div>
 
+      <details className="group -mt-1">
+        <summary className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+          <Info className="size-3" />
+          What do the numbers on each card mean?
+        </summary>
+        <div className="mt-1.5 space-y-1.5 rounded-lg bg-secondary/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+          <p>
+            <span className="font-medium text-foreground">Win rate</span> — how often it finished a trade in profit.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Avg per trade</span> — the typical result per trade, measured
+            against what you risked. +0.30R means about 0.30× your risk earned each time on average, after costs.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Reward vs risk</span> — total winnings divided by total
+            losses. Above 1× means it won more than it lost.
+          </p>
+        </div>
+      </details>
+
       <div className="flex flex-col gap-3">
         {items.map((item) => (
           <DeskCard key={item.id} item={item} frozen={frozen} onRemove={() => removeFromDesk(item.id)} />
@@ -118,8 +138,11 @@ function DeskCard({ item, frozen, onRemove }: { item: DeskItem; frozen: boolean;
           <div className="flex items-center gap-2">
             <h3 className="truncate text-base font-semibold">{item.name}</h3>
             {item.survived && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-chart-4/15 px-2 py-0.5 text-[10px] font-medium text-chart-4">
-                <BadgeCheck className="size-3" /> Survived OOS
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-chart-4/15 px-2 py-0.5 text-[10px] font-medium text-chart-4"
+                title="Still made money on data it was never tuned on — the check most strategies fail"
+              >
+                <BadgeCheck className="size-3" /> Passed unseen data
               </span>
             )}
           </div>
@@ -142,8 +165,8 @@ function DeskCard({ item, frozen, onRemove }: { item: DeskItem; frozen: boolean;
       </div>
       <div className="grid grid-cols-3 gap-2 p-4">
         <Metric label="Win rate" value={`${item.winRate}%`} />
-        <Metric label="Edge / trade" value={`${item.expectancy > 0 ? "+" : ""}${item.expectancy}R`} tone="good" />
-        <Metric label="Profit factor" value={item.profitFactor.toFixed(2)} tone="good" />
+        <Metric label="Avg per trade" value={`${item.expectancy > 0 ? "+" : ""}${item.expectancy}R`} tone="good" />
+        <Metric label="Reward vs risk" value={`${item.profitFactor.toFixed(2)}×`} tone="good" />
       </div>
       <DeskSignalPath coinId={item.symbol} timeframe={item.timeframe} assetName={item.assetName} frozen={frozen} />
     </div>
