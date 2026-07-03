@@ -56,6 +56,23 @@ export const STOCKS: Coin[] = [
   { id: "AMZN", symbol: "AMZN", name: "Amazon", kind: "stock" },
   { id: "META", symbol: "META", name: "Meta Platforms", kind: "stock" },
   { id: "GOOGL", symbol: "GOOGL", name: "Alphabet", kind: "stock" },
+  // --- expanded equities (Alpaca-validated, same robustness bar) ---
+  { id: "AMD", symbol: "AMD", name: "Advanced Micro Devices", kind: "stock" },
+  { id: "NFLX", symbol: "NFLX", name: "Netflix", kind: "stock" },
+  { id: "COIN", symbol: "COIN", name: "Coinbase", kind: "stock" },
+  { id: "PLTR", symbol: "PLTR", name: "Palantir", kind: "stock" },
+  { id: "JPM", symbol: "JPM", name: "JPMorgan Chase", kind: "stock" },
+  { id: "BABA", symbol: "BABA", name: "Alibaba", kind: "stock" },
+  { id: "SOFI", symbol: "SOFI", name: "SoFi", kind: "stock" },
+  { id: "GME", symbol: "GME", name: "GameStop", kind: "stock" },
+  { id: "AVGO", symbol: "AVGO", name: "Broadcom", kind: "stock" },
+  { id: "CRM", symbol: "CRM", name: "Salesforce", kind: "stock" },
+  { id: "ORCL", symbol: "ORCL", name: "Oracle", kind: "stock" },
+  { id: "PYPL", symbol: "PYPL", name: "PayPal", kind: "stock" },
+  { id: "SHOP", symbol: "SHOP", name: "Shopify", kind: "stock" },
+  { id: "MU", symbol: "MU", name: "Micron", kind: "stock" },
+  { id: "SMCI", symbol: "SMCI", name: "Super Micro", kind: "stock" },
+  { id: "MSTR", symbol: "MSTR", name: "MicroStrategy", kind: "stock" },
 ]
 
 // The full tradable universe across both asset classes.
