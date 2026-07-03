@@ -7,6 +7,7 @@ import {
   ArrowRight,
   BadgeCheck,
   Check,
+  CircleAlert,
   CircleCheck,
   Compass,
   Info,
@@ -39,13 +40,6 @@ const TF_LABEL: Record<string, string> = {
   position: "Position (weeks)",
 }
 
-// Short, human labels for the out-of-sample robustness verdict.
-const VERDICT_LABEL: Record<string, string> = {
-  robust: "Strong",
-  fragile: "Fragile",
-  inconclusive: "Mixed",
-  untested: "Untested",
-}
 
 type Phase = "questions" | "configuring" | "markets" | "strategy" | "deployed"
 
@@ -455,22 +449,25 @@ function StrategyStep({
             ))}
           </div>
 
-          {/* System-level validation facts only. Win rate / edge / profit factor
-              are per-ASSET and would be misleading here (they imply one universal
-              number for the system). Those appear once an asset is selected. */}
-          <div className="grid grid-cols-3 gap-2">
-            <Metric label="Trades tested" value={p.trades.toLocaleString()} />
-            <Metric
-              label="Out-of-sample"
-              value={survived ? "Passed" : "Mixed"}
-              tone={survived ? "good" : undefined}
+          {/* Asset-agnostic validation summary. NO win rate / edge / profit factor
+              or trade counts here — those are per-ASSET and would imply a single
+              universal number for the system. They appear per asset in Step 2. */}
+          <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/30 p-3">
+            <ValidationCheck label="Matched to your trading style" ok />
+            <ValidationCheck
+              label={survived ? "Out-of-sample validation passed" : "Out-of-sample results were mixed"}
+              ok={survived}
             />
-            <Metric label="Robustness" value={VERDICT_LABEL[p.oosVerdict]} tone={survived ? "good" : undefined} />
+            <ValidationCheck
+              label={`Validated across ${validatedCount} compatible ${validatedCount === 1 ? "asset" : "assets"}`}
+              ok
+            />
+            <ValidationCheck label="Robust across multiple market conditions" ok={survived} />
           </div>
           <p className="mt-3 text-pretty text-[11px] leading-relaxed text-muted-foreground">
-            {survived
-              ? "This system kept working on data it never trained on — the check most strategies fail. You'll see the win rate and edge for each asset once you choose it."
-              : "Past results don't guarantee future ones — this is structure, not a promise. Per-asset numbers appear once you choose a market."}
+            This tells you <span className="font-medium text-foreground">how</span> you&apos;ll trade. Next, choose{" "}
+            <span className="font-medium text-foreground">where</span> — you&apos;ll see each asset&apos;s own win rate
+            and edge as you pick it.
           </p>
         </div>
       </div>
@@ -776,11 +773,15 @@ function DeployedStep({ count, onRestart }: { count: number; onRestart: () => vo
   )
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: "good" }) {
+function ValidationCheck({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <div className="rounded-lg bg-secondary/50 px-2.5 py-2 text-center">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={cn("mt-0.5 text-sm font-semibold tabular-nums", tone === "good" && "text-chart-3")}>{value}</div>
+    <div className="flex items-center gap-2 text-sm">
+      {ok ? (
+        <CircleCheck className="size-4 shrink-0 text-chart-4" />
+      ) : (
+        <CircleAlert className="size-4 shrink-0 text-muted-foreground" />
+      )}
+      <span className={cn("text-pretty", ok ? "text-foreground" : "text-muted-foreground")}>{label}</span>
     </div>
   )
 }
