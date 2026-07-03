@@ -81,22 +81,30 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
     )
     const best = ranked[0]
 
-    // Markets the assigned system supports, at its timeframe. Broaden if thin.
+    // If the user picked a specific market type, we ONLY ever show that type.
+    // Picking "Crypto" must never surface a stock ticker on the picker, and
+    // vice-versa. "No preference" leaves both classes eligible.
+    const wantClass = a.asset === "crypto" ? "crypto" : a.asset === "stocks" ? "stock" : null
+    const inClass = (p: PublicPairing) => wantClass === null || p.assetClass === wantClass
+
+    // Markets the assigned system supports, at its timeframe. Broaden if thin,
+    // but keep the asset-class filter locked at every widening step.
     let markets = pairings.filter(
-      (p) => p.strategyId === best.strategyId && p.timeframe === best.timeframe,
+      (p) => p.strategyId === best.strategyId && p.timeframe === best.timeframe && inClass(p),
     )
     if (markets.length < 2) {
-      markets = pairings.filter((p) => p.strategyId === best.strategyId)
+      // Same strategy, any timeframe — still restricted to the chosen class.
+      markets = pairings.filter((p) => p.strategyId === best.strategyId && inClass(p))
     }
-    // Sort by asset preference first, then by trust (survivors, then edge).
+    if (markets.length < 2 && wantClass !== null) {
+      // Last resort: any proven system in the chosen class, so a crypto picker
+      // always gets crypto options instead of being shown stocks.
+      markets = pairings.filter(inClass)
+    }
+
+    // Sort by trust (survivors first), then edge. Asset class is already locked.
     const rank: Record<string, number> = { robust: 0, fragile: 1, inconclusive: 2, untested: 3 }
     markets = [...markets].sort((x, y) => {
-      if (a.asset === "crypto" || a.asset === "stocks") {
-        const want = a.asset === "crypto" ? "crypto" : "stock"
-        const xw = x.assetClass === want ? 0 : 1
-        const yw = y.assetClass === want ? 0 : 1
-        if (xw !== yw) return xw - yw
-      }
       const r = (rank[x.oosVerdict] ?? 3) - (rank[y.oosVerdict] ?? 3)
       if (r !== 0) return r
       return y.expectancy - x.expectancy
