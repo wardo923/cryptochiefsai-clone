@@ -17,12 +17,21 @@ type SignalResponse = {
   generatedAt: string
 }
 
+// The Desk stores a playbook timeframe ("intraday" / "swing" / "position"), but
+// the signal engine speaks the finer-grained analysis Timeframe. Map the coarse
+// playbook value onto a concrete lane the engine understands — "intraday" runs
+// the same-session 15m lane; swing/position pass straight through.
+function toAnalysisTimeframe(tf: string): string {
+  if (tf === "intraday") return "intraday15m"
+  return tf
+}
+
 // One shared fetcher — POST the coin id + timeframe to the live signal engine.
 async function fetchSignal([, coinId, timeframe]: [string, string, string]): Promise<SignalResponse> {
   const res = await fetch("/api/signal", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ coinId, timeframe }),
+    body: JSON.stringify({ coinId, timeframe: toAnalysisTimeframe(timeframe) }),
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
@@ -352,7 +361,7 @@ export function DeskSignalPath({
   frozen = false,
 }: {
   coinId: string
-  timeframe: "swing" | "position"
+  timeframe: "intraday" | "swing" | "position"
   assetName: string
   frozen?: boolean
 }) {

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 type Asset = { symbol: string; name: string; count: number }
 
 const TF_LABEL: Record<string, string> = {
+  intraday: "Intraday (same session)",
   swing: "Swing (days)",
   position: "Position (weeks)",
 }

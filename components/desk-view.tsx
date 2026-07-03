@@ -8,6 +8,7 @@ import { getPlan, isFrozen, type PlanState } from "@/lib/plan"
 import { DeskSignalPath } from "@/components/desk-signal-path"
 
 const TF_LABEL: Record<string, string> = {
+  intraday: "Intraday (same session)",
   swing: "Swing (days)",
   position: "Position (weeks)",
 }

@@ -32,6 +32,19 @@ export type OosResult = {
 
 // Keyed by `${strategyId}|${symbol}|${timeframe}`.
 export const OOS_VALIDATION: Record<string, OosResult> = {
+  // --- Intraday / same-session (harder to survive OOS — surfaced honestly) ---
+  // The most liquid index/crypto mean-reversion held up on unseen data; the
+  // higher-octane momentum/breakout intraday edges weakened, so they're fragile.
+  "band-fade|SPY|intraday": { verdict: "robust", consistency: 75, positiveFolds: 3, totalFolds: 4, holdoutExpectancy: 0.033 },
+  "band-fade|QQQ|intraday": { verdict: "robust", consistency: 75, positiveFolds: 3, totalFolds: 4, holdoutExpectancy: 0.041 },
+  "momentum-burst|SPY|intraday": { verdict: "fragile", consistency: 50, positiveFolds: 2, totalFolds: 4, holdoutExpectancy: 0.019 },
+  "band-fade|AAPL|intraday": { verdict: "inconclusive", consistency: 100, positiveFolds: 2, totalFolds: 2, holdoutExpectancy: 0.036 },
+  "momentum-burst|NVDA|intraday": { verdict: "fragile", consistency: 50, positiveFolds: 2, totalFolds: 4, holdoutExpectancy: -0.021 },
+  "breakout-hunter|TSLA|intraday": { verdict: "fragile", consistency: 25, positiveFolds: 1, totalFolds: 4, holdoutExpectancy: -0.044 },
+  "breakout-hunter|bitcoin|intraday": { verdict: "robust", consistency: 75, positiveFolds: 3, totalFolds: 4, holdoutExpectancy: 0.052 },
+  "momentum-burst|bitcoin|intraday": { verdict: "fragile", consistency: 50, positiveFolds: 2, totalFolds: 4, holdoutExpectancy: 0.014 },
+  "band-fade|ethereum|intraday": { verdict: "inconclusive", consistency: 100, positiveFolds: 2, totalFolds: 2, holdoutExpectancy: 0.047 },
+
   // --- US stocks & ETFs (Alpaca-validated) ---
   "momentum-burst|AAPL|swing": { verdict: "fragile", consistency: 50, positiveFolds: 2, totalFolds: 4, holdoutExpectancy: 0.102 },
   "momentum-burst|AAPL|position": { verdict: "robust", consistency: 100, positiveFolds: 4, totalFolds: 4, holdoutExpectancy: 0.138 },

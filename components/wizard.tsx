@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils"
 
 const TF_LABEL: Record<string, string> = {
+  intraday: "Intraday (same session)",
   swing: "Swing (days)",
   position: "Position (weeks)",
 }

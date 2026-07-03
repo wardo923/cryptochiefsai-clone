@@ -19,7 +19,7 @@ import { PROVEN_PAIRINGS } from "./mapping"
 import { COINS } from "../coins"
 
 export type AssetClassPref = "crypto" | "stocks" | "either"
-export type HoldPref = "days" | "weeks" | "either"
+export type HoldPref = "session" | "days" | "weeks" | "either"
 export type SwingComfort = "calm" | "some" | "high"
 export type MoverPref = "steady" | "explosive" | "any"
 export type ActivityPref = "weekly" | "often" | "either"
@@ -67,6 +67,7 @@ export const WIZARD_QUESTIONS: WizardQuestion[] = [
     prompt: "How long do you want to hold a trade?",
     help: "There's no right answer — it's about what fits your life.",
     options: [
+      { value: "session", label: "Same session", desc: "In and out within hours — nothing held overnight" },
       { value: "days", label: "A few days", desc: "In and out within the week" },
       { value: "weeks", label: "A few weeks", desc: "Patient — let the bigger move play out" },
       { value: "either", label: "No preference", desc: "Whatever has the strongest track record" },
@@ -165,7 +166,7 @@ export function volTier(symbol: string): VolTier {
 export type ScorablePairing = {
   strategyId: string
   symbol: string
-  timeframe: "swing" | "position"
+  timeframe: "intraday" | "swing" | "position"
   expectancy: number
   maxDrawdownR: number
   winRate: number
@@ -176,13 +177,17 @@ export type ScorablePairing = {
 export function scorePairing(p: ScorablePairing, a: WizardAnswers): number {
   let score = 0
 
-  // Hold length (swing = days, position = weeks). Activity reinforces it.
+  // Hold length (intraday = hours/same session, swing = days, position = weeks).
+  // Activity reinforces days vs weeks. "Same session" is an explicit choice only —
+  // we never nudge someone into intraday's thin edge unless they ask for it.
+  const wantsIntraday = a.hold === "session"
   const wantsSwing = a.hold === "days" || (a.hold === "either" && a.activity === "often")
   const wantsPosition = a.hold === "weeks" || (a.hold === "either" && a.activity === "weekly")
-  if (a.hold === "either" && a.activity === "either") score += 1
+  if (a.hold === "either" && a.activity === "either") score += p.timeframe === "intraday" ? 0 : 1
+  else if (wantsIntraday && p.timeframe === "intraday") score += 3
   else if (wantsSwing && p.timeframe === "swing") score += 3
   else if (wantsPosition && p.timeframe === "position") score += 3
-  else if (a.hold === "either") score += 1
+  else if (a.hold === "either") score += p.timeframe === "intraday" ? 0 : 1
   else score -= 2
 
   // Swing comfort vs the pairing's worst losing streak (honest, from backtests).
@@ -216,9 +221,11 @@ export function scorePairing(p: ScorablePairing, a: WizardAnswers): number {
 export function fitReasons(p: ScorablePairing & { maxDrawdownR: number }, a: WizardAnswers): string[] {
   const r: string[] = []
   r.push(
-    p.timeframe === "swing"
-      ? "Holds for a few days, matching your pace"
-      : "Holds for weeks, matching your patience",
+    p.timeframe === "intraday"
+      ? "Wraps up the same session — nothing held overnight"
+      : p.timeframe === "swing"
+        ? "Holds for a few days, matching your pace"
+        : "Holds for weeks, matching your patience",
   )
   const tier = volTier(p.symbol)
   if (a.mover === "steady" && tier === "steady") r.push("A steadier, established market like you wanted")
