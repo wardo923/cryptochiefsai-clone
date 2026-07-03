@@ -9,7 +9,7 @@
 //   The live app drifted from the validated research. The old switch could assign
 //   INTRADAY strategies (e.g. opening-range breakout, intraday pullback, range
 //   fade) that LOST money after real trading costs in testing. This engine can
-//   ONLY ever assign one of the 79 pairings below — every one of which passed a
+//   ONLY ever assign one of the 138 pairings below — every one of which passed a
 //   strict, realistic-cost backtest bar:
 //        trades >= 30  AND  expectancy > 0  AND  profitFactor >= 1.3
 //
@@ -44,7 +44,7 @@ export type ProvenPairing = {
 }
 
 // ---------------------------------------------------------------------------
-// THE 79 VALIDATED PAIRINGS. Swing + position only. Stocks via Alpaca data,
+// THE 138 VALIDATED PAIRINGS. Swing + position only. Stocks via Alpaca data,
 // crypto via Binance data. Regenerate from the research lab if data refreshes.
 // ---------------------------------------------------------------------------
 export const PROVEN_PAIRINGS: ProvenPairing[] = [
@@ -129,6 +129,66 @@ export const PROVEN_PAIRINGS: ProvenPairing[] = [
   { strategyId: "breakout-hunter", symbol: "sui", timeframe: "position", winRate: 47.2, expectancy: 0.18, profitFactor: 1.35, maxDrawdownR: 3.17, trades: 36, tier: "proven" },
   { strategyId: "golden-trend", symbol: "sui", timeframe: "position", winRate: 47.9, expectancy: 0.173, profitFactor: 1.35, maxDrawdownR: 4.71, trades: 48, tier: "proven" },
   { strategyId: "breakout-hunter", symbol: "sui", timeframe: "swing", winRate: 48.7, expectancy: 0.167, profitFactor: 1.43, maxDrawdownR: 6.55, trades: 152, tier: "proven" },
+  // --- Expanded crypto universe (Binance data, same >=30 trades / expectancy>0 / PF>=1.3 bar) ---
+  { strategyId: "pullback-buyer", symbol: "ripple", timeframe: "swing", winRate: 40.4, expectancy: 0.108, profitFactor: 1.41, maxDrawdownR: 3.97, trades: 57, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "polkadot", timeframe: "swing", winRate: 52.3, expectancy: 0.228, profitFactor: 1.56, maxDrawdownR: 4.64, trades: 149, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "polkadot", timeframe: "swing", winRate: 53.8, expectancy: 0.149, profitFactor: 1.57, maxDrawdownR: 3.4, trades: 80, tier: "proven" },
+  { strategyId: "pullback-buyer", symbol: "tron", timeframe: "swing", winRate: 52, expectancy: 0.142, profitFactor: 1.44, maxDrawdownR: 8.45, trades: 102, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "matic-network", timeframe: "swing", winRate: 52.2, expectancy: 0.109, profitFactor: 1.44, maxDrawdownR: 5.09, trades: 201, tier: "proven" },
+  { strategyId: "momentum-burst", symbol: "matic-network", timeframe: "swing", winRate: 47.1, expectancy: 0.172, profitFactor: 1.37, maxDrawdownR: 20.33, trades: 240, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "matic-network", timeframe: "swing", winRate: 47.9, expectancy: 0.109, profitFactor: 1.32, maxDrawdownR: 6.21, trades: 73, tier: "proven" },
+  { strategyId: "band-fade", symbol: "litecoin", timeframe: "swing", winRate: 56.6, expectancy: 0.248, profitFactor: 1.54, maxDrawdownR: 6.56, trades: 53, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "uniswap", timeframe: "swing", winRate: 49.4, expectancy: 0.105, profitFactor: 1.33, maxDrawdownR: 7.53, trades: 89, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "internet-computer", timeframe: "swing", winRate: 47.6, expectancy: 0.165, profitFactor: 1.37, maxDrawdownR: 8.65, trades: 143, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "internet-computer", timeframe: "swing", winRate: 48.8, expectancy: 0.102, profitFactor: 1.33, maxDrawdownR: 4.05, trades: 86, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "stellar", timeframe: "swing", winRate: 49, expectancy: 0.192, profitFactor: 1.45, maxDrawdownR: 5.73, trades: 157, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "stellar", timeframe: "swing", winRate: 50.6, expectancy: 0.115, profitFactor: 1.42, maxDrawdownR: 3.11, trades: 89, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "cosmos", timeframe: "swing", winRate: 49.7, expectancy: 0.138, profitFactor: 1.31, maxDrawdownR: 12.28, trades: 143, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "cosmos", timeframe: "swing", winRate: 54.1, expectancy: 0.145, profitFactor: 1.58, maxDrawdownR: 4.51, trades: 85, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "arbitrum", timeframe: "swing", winRate: 47.2, expectancy: 0.197, profitFactor: 1.46, maxDrawdownR: 6.51, trades: 144, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "sei-network", timeframe: "swing", winRate: 49.7, expectancy: 0.181, profitFactor: 1.44, maxDrawdownR: 8.32, trades: 153, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "render-token", timeframe: "swing", winRate: 48.9, expectancy: 0.163, profitFactor: 1.4, maxDrawdownR: 7.68, trades: 133, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "fantom", timeframe: "swing", winRate: 50, expectancy: 0.079, profitFactor: 1.31, maxDrawdownR: 2.57, trades: 50, tier: "proven" },
+  { strategyId: "momentum-burst", symbol: "fantom", timeframe: "swing", winRate: 51.4, expectancy: 0.243, profitFactor: 1.53, maxDrawdownR: 6.99, trades: 74, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "fantom", timeframe: "swing", winRate: 52.6, expectancy: 0.137, profitFactor: 1.34, maxDrawdownR: 6.65, trades: 38, tier: "proven" },
+  { strategyId: "golden-trend", symbol: "polkadot", timeframe: "position", winRate: 50.5, expectancy: 0.177, profitFactor: 1.42, maxDrawdownR: 5.68, trades: 97, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "polkadot", timeframe: "position", winRate: 53.1, expectancy: 0.361, profitFactor: 2.43, maxDrawdownR: 2.27, trades: 32, tier: "proven" },
+  { strategyId: "band-fade", symbol: "polkadot", timeframe: "position", winRate: 48.4, expectancy: 0.202, profitFactor: 1.41, maxDrawdownR: 4.17, trades: 31, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "tron", timeframe: "position", winRate: 59.3, expectancy: 0.331, profitFactor: 2.31, maxDrawdownR: 5.02, trades: 86, tier: "strong" },
+  { strategyId: "pullback-buyer", symbol: "tron", timeframe: "position", winRate: 63, expectancy: 0.4, profitFactor: 2.36, maxDrawdownR: 3.51, trades: 46, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "tron", timeframe: "position", winRate: 44.4, expectancy: 0.174, profitFactor: 1.33, maxDrawdownR: 4.13, trades: 63, tier: "proven" },
+  { strategyId: "band-fade", symbol: "tron", timeframe: "position", winRate: 48.6, expectancy: 0.174, profitFactor: 1.32, maxDrawdownR: 5.13, trades: 37, tier: "proven" },
+  { strategyId: "momentum-burst", symbol: "matic-network", timeframe: "position", winRate: 63.6, expectancy: 0.427, profitFactor: 2.34, maxDrawdownR: 3.04, trades: 33, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "near", timeframe: "position", winRate: 49.4, expectancy: 0.146, profitFactor: 1.4, maxDrawdownR: 6.98, trades: 79, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "near", timeframe: "position", winRate: 55.1, expectancy: 0.257, profitFactor: 1.6, maxDrawdownR: 8.59, trades: 69, tier: "strong" },
+  { strategyId: "golden-trend", symbol: "near", timeframe: "position", winRate: 47.8, expectancy: 0.167, profitFactor: 1.37, maxDrawdownR: 7.77, trades: 92, tier: "proven" },
+  { strategyId: "momentum-burst", symbol: "internet-computer", timeframe: "position", winRate: 47.5, expectancy: 0.154, profitFactor: 1.33, maxDrawdownR: 6.06, trades: 101, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "internet-computer", timeframe: "position", winRate: 50.9, expectancy: 0.271, profitFactor: 1.67, maxDrawdownR: 5.44, trades: 53, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "aptos", timeframe: "position", winRate: 60, expectancy: 0.186, profitFactor: 1.84, maxDrawdownR: 1.88, trades: 50, tier: "proven" },
+  { strategyId: "band-fade", symbol: "stellar", timeframe: "position", winRate: 62.5, expectancy: 0.564, profitFactor: 2.55, maxDrawdownR: 3.19, trades: 32, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "filecoin", timeframe: "position", winRate: 59, expectancy: 0.125, profitFactor: 1.44, maxDrawdownR: 4.86, trades: 83, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "filecoin", timeframe: "position", winRate: 64.5, expectancy: 0.501, profitFactor: 3.05, maxDrawdownR: 2.89, trades: 31, tier: "proven" },
+  { strategyId: "band-fade", symbol: "filecoin", timeframe: "position", winRate: 48.8, expectancy: 0.262, profitFactor: 1.59, maxDrawdownR: 3.6, trades: 41, tier: "proven" },
+  { strategyId: "golden-trend", symbol: "hedera-hashgraph", timeframe: "position", winRate: 44.9, expectancy: 0.137, profitFactor: 1.32, maxDrawdownR: 7.78, trades: 98, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "hedera-hashgraph", timeframe: "position", winRate: 61.1, expectancy: 0.238, profitFactor: 1.82, maxDrawdownR: 2.83, trades: 36, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "arbitrum", timeframe: "position", winRate: 55.8, expectancy: 0.123, profitFactor: 1.38, maxDrawdownR: 6.4, trades: 43, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "arbitrum", timeframe: "position", winRate: 47.2, expectancy: 0.254, profitFactor: 1.56, maxDrawdownR: 4.18, trades: 36, tier: "proven" },
+  { strategyId: "golden-trend", symbol: "arbitrum", timeframe: "position", winRate: 52.3, expectancy: 0.236, profitFactor: 1.65, maxDrawdownR: 5.32, trades: 44, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "optimism", timeframe: "position", winRate: 52.7, expectancy: 0.141, profitFactor: 1.45, maxDrawdownR: 4.38, trades: 55, tier: "proven" },
+  { strategyId: "golden-trend", symbol: "optimism", timeframe: "position", winRate: 44.6, expectancy: 0.14, profitFactor: 1.3, maxDrawdownR: 6.89, trades: 65, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "injective-protocol", timeframe: "position", winRate: 54.9, expectancy: 0.097, profitFactor: 1.31, maxDrawdownR: 6.85, trades: 82, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "injective-protocol", timeframe: "position", winRate: 44.4, expectancy: 0.218, profitFactor: 1.49, maxDrawdownR: 9.59, trades: 63, tier: "proven" },
+  { strategyId: "supertrend-follow", symbol: "injective-protocol", timeframe: "position", winRate: 54.8, expectancy: 0.187, profitFactor: 1.69, maxDrawdownR: 3.44, trades: 31, tier: "proven" },
+  { strategyId: "momentum-burst", symbol: "sei-network", timeframe: "position", winRate: 50, expectancy: 0.257, profitFactor: 1.52, maxDrawdownR: 6.1, trades: 52, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "sei-network", timeframe: "position", winRate: 53.1, expectancy: 0.315, profitFactor: 1.76, maxDrawdownR: 2.77, trades: 32, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "the-graph", timeframe: "position", winRate: 57.1, expectancy: 0.106, profitFactor: 1.37, maxDrawdownR: 5.12, trades: 77, tier: "proven" },
+  { strategyId: "momentum-burst", symbol: "the-graph", timeframe: "position", winRate: 53.5, expectancy: 0.27, profitFactor: 1.63, maxDrawdownR: 5.14, trades: 101, tier: "strong" },
+  { strategyId: "breakout-hunter", symbol: "the-graph", timeframe: "position", winRate: 50, expectancy: 0.192, profitFactor: 1.46, maxDrawdownR: 3.53, trades: 64, tier: "proven" },
+  { strategyId: "trend-rider", symbol: "fantom", timeframe: "position", winRate: 56.3, expectancy: 0.276, profitFactor: 1.93, maxDrawdownR: 2.7, trades: 64, tier: "strong" },
+  { strategyId: "momentum-burst", symbol: "fantom", timeframe: "position", winRate: 44.9, expectancy: 0.199, profitFactor: 1.4, maxDrawdownR: 7.41, trades: 89, tier: "proven" },
+  { strategyId: "breakout-hunter", symbol: "fantom", timeframe: "position", winRate: 53.6, expectancy: 0.446, profitFactor: 2.13, maxDrawdownR: 3.82, trades: 56, tier: "proven" },
+  { strategyId: "golden-trend", symbol: "fantom", timeframe: "position", winRate: 50.7, expectancy: 0.364, profitFactor: 1.82, maxDrawdownR: 6.14, trades: 73, tier: "strong" },
+  { strategyId: "supertrend-follow", symbol: "fantom", timeframe: "position", winRate: 61.3, expectancy: 0.353, profitFactor: 2.61, maxDrawdownR: 1.77, trades: 31, tier: "proven" },
 ]
 
 // ---------------------------------------------------------------------------
@@ -142,12 +202,18 @@ export const STRATEGY_NAME: Record<string, string> = {
   "breakout-hunter": "Breakout Hunter",
   "momentum-burst": "Momentum Burst",
   "supertrend-follow": "Supertrend Follower",
+  "band-fade": "Band Fade",
 }
 
 // Crypto ids in the roster (everything else is a stock/ETF ticker).
 const CRYPTO_IDS = new Set([
   "avalanche-2", "binancecoin", "bitcoin", "cardano",
   "dogecoin", "ethereum", "solana", "sui",
+  // expanded universe
+  "ripple", "polkadot", "tron", "matic-network", "litecoin", "uniswap",
+  "internet-computer", "stellar", "cosmos", "arbitrum", "sei-network",
+  "render-token", "fantom", "near", "aptos", "filecoin", "hedera-hashgraph",
+  "optimism", "injective-protocol", "the-graph",
 ])
 export function isCryptoSymbol(symbol: string): boolean {
   return CRYPTO_IDS.has(symbol)
