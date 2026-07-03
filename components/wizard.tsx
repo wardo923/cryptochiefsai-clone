@@ -39,6 +39,14 @@ const TF_LABEL: Record<string, string> = {
   position: "Position (weeks)",
 }
 
+// Short, human labels for the out-of-sample robustness verdict.
+const VERDICT_LABEL: Record<string, string> = {
+  robust: "Strong",
+  fragile: "Fragile",
+  inconclusive: "Mixed",
+  untested: "Untested",
+}
+
 type Phase = "questions" | "configuring" | "markets" | "strategy" | "deployed"
 
 type AssignedSystem = {
@@ -447,16 +455,22 @@ function StrategyStep({
             ))}
           </div>
 
+          {/* System-level validation facts only. Win rate / edge / profit factor
+              are per-ASSET and would be misleading here (they imply one universal
+              number for the system). Those appear once an asset is selected. */}
           <div className="grid grid-cols-3 gap-2">
-            <Metric label="Win rate" value={`${p.winRate}%`} />
-            <Metric label="Historical Edge" value={`${p.expectancy > 0 ? "+" : ""}${p.expectancy}R`} tone="good" />
-            <Metric label="Historical Consistency" value={`${p.profitFactor.toFixed(2)}×`} tone="good" />
+            <Metric label="Trades tested" value={p.trades.toLocaleString()} />
+            <Metric
+              label="Out-of-sample"
+              value={survived ? "Passed" : "Mixed"}
+              tone={survived ? "good" : undefined}
+            />
+            <Metric label="Robustness" value={VERDICT_LABEL[p.oosVerdict]} tone={survived ? "good" : undefined} />
           </div>
           <p className="mt-3 text-pretty text-[11px] leading-relaxed text-muted-foreground">
-            Tested over {p.trades} trades on real data, after real costs.{" "}
             {survived
-              ? "It also kept working on data it never trained on — the check most strategies fail."
-              : "Past results don't guarantee future ones — this is structure, not a promise."}
+              ? "This system kept working on data it never trained on — the check most strategies fail. You'll see the win rate and edge for each asset once you choose it."
+              : "Past results don't guarantee future ones — this is structure, not a promise. Per-asset numbers appear once you choose a market."}
           </p>
         </div>
       </div>
@@ -605,6 +619,26 @@ function MarketPicker({
               <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-chart-4">
                 <BadgeCheck className="size-3" /> Validated · {m.trades} trades
               </span>
+
+              {/* Truthful, per-ASSET numbers — only shown once this specific asset
+                  is selected, since win rate / edge vary by market. */}
+              {isSelected && (
+                <div className="mt-2 flex items-center gap-3 border-t border-primary/20 pt-2 font-mono text-[10px] text-muted-foreground">
+                  <span>
+                    <span className="text-foreground">{m.winRate}%</span> win
+                  </span>
+                  <span>
+                    <span className="text-chart-4">
+                      {m.expectancy > 0 ? "+" : ""}
+                      {m.expectancy}R
+                    </span>{" "}
+                    edge
+                  </span>
+                  <span>
+                    <span className="text-chart-4">{m.profitFactor.toFixed(2)}×</span> PF
+                  </span>
+                </div>
+              )}
 
               {/* selection / lock indicator */}
               <span
