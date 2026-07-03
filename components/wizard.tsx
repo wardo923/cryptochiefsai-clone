@@ -9,6 +9,7 @@ import {
   Check,
   CircleCheck,
   Compass,
+  Info,
   Lock,
   Radar,
   RotateCcw,
@@ -334,7 +335,7 @@ function ConfiguringSplash({ onDone }: { onDone: () => void }) {
 
       <div className="flex flex-col gap-2">
         <h2 className="text-balance text-lg font-semibold leading-tight sm:text-xl">
-          SightLine is configuring the best markets for your Path
+          SightLine is checking which markets qualify for your Path
         </h2>
         <p className="text-pretty text-sm text-muted-foreground">This takes a moment — we only match what we&apos;ve tested.</p>
       </div>
@@ -410,8 +411,8 @@ function StrategyStep({
         </button>
       </div>
       <p className="text-pretty text-sm text-muted-foreground">
-        Based on your answers, SightLine configured the system that best matches how you trade — and backtested it on your{" "}
-        {marketCount > 1 ? `${marketCount} markets` : "market"}.
+            Based on your answers, SightLine assigned the system that fits how you trade — and validated it on your{" "}
+            {marketCount > 1 ? `${marketCount} markets` : "market"}.
       </p>
 
       <div className={cn("overflow-hidden rounded-2xl border bg-card", survived ? "border-chart-4/50" : "border-primary/40")}>
@@ -419,8 +420,11 @@ function StrategyStep({
           <div className="flex items-center justify-between gap-2">
             <span className="text-lg font-semibold">Build your strategy</span>
             {survived && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-chart-4/15 px-2 py-1 text-xs font-medium text-chart-4">
-                <BadgeCheck className="size-3.5" /> Survived OOS
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-chart-4/15 px-2 py-1 text-xs font-medium text-chart-4"
+                title="Still made money on data it was never tuned on — the check most strategies fail"
+              >
+                <BadgeCheck className="size-3.5" /> Passed unseen data
               </span>
             )}
           </div>
@@ -519,11 +523,16 @@ function MarketPicker({
       </div>
 
       <div>
-        <h2 className="text-balance text-2xl font-semibold leading-tight sm:text-3xl">Which market do you trade most?</h2>
+        <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-chart-4/15 px-2.5 py-1 text-[11px] font-medium text-chart-4">
+          <BadgeCheck className="size-3.5" /> Validated for you
+        </div>
+        <h2 className="text-balance text-2xl font-semibold leading-tight sm:text-3xl">
+          The markets that qualify for your system
+        </h2>
         <p className="mt-2 text-pretty text-sm text-muted-foreground">
           {frozen
             ? "Your plan is paused. Upgrade to start monitoring markets again."
-            : `These are the markets that matched your answers. We run one system per market — pick up to ${limit}.`}
+            : `Based on your Wizard answers, these are the assets that matched your trading profile and passed SightLine's validation standards. We run one system per market — pick up to ${limit}.`}
         </p>
       </div>
 
@@ -538,6 +547,20 @@ function MarketPicker({
             {selected.length} of {limit}
           </span>
         </div>
+      )}
+
+      {!frozen && (
+        <details className="group">
+          <summary className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+            <Info className="size-3" />
+            Why only these markets?
+          </summary>
+          <p className="mt-1.5 text-pretty rounded-lg bg-secondary/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+            Your trading system isn&apos;t designed for every market. Rather than handing you thousands of symbols to
+            sort through, SightLine only shows the assets where this system has been validated against our research
+            standards <span className="font-medium text-foreground">and</span> fits the profile from your answers.
+          </p>
+        </details>
       )}
 
       <div className="grid grid-cols-2 gap-2.5">
