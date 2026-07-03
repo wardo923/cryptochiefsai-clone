@@ -229,8 +229,8 @@ function BestFitCard({ pairing }: { pairing: PublicPairing }) {
 
         <div className="mt-4 grid grid-cols-3 gap-2">
           <Metric label="Win rate" value={`${pairing.winRate}%`} />
-          <Metric label="Avg per trade" value={`${pairing.expectancy > 0 ? "+" : ""}${pairing.expectancy}R`} tone="good" />
-          <Metric label="Reward vs risk" value={`${pairing.profitFactor.toFixed(2)}×`} tone="good" />
+          <Metric label="Historical Edge" value={`${pairing.expectancy > 0 ? "+" : ""}${pairing.expectancy}R`} tone="good" />
+          <Metric label="Historical Consistency" value={`${pairing.profitFactor.toFixed(2)}×`} tone="good" />
         </div>
         <MetricLegend />
         <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -314,7 +314,7 @@ function StrategyBrowser({
                   {s.survivedCount > 0 && (
                     <span className="inline-flex items-center gap-1 rounded bg-chart-4/15 px-1.5 py-0.5 text-[10px] font-medium text-chart-4">
                       <BadgeCheck className="size-3" />
-                      {s.survivedCount} passed unseen data
+                      {s.survivedCount} SightLine Validated
                     </span>
                   )}
                 </div>
@@ -342,7 +342,7 @@ function StrategyBrowser({
                             {isSurvived(p) && (
                               <span className="inline-flex items-center gap-0.5 rounded bg-chart-4/15 px-1 py-0.5 text-[9px] font-medium text-chart-4">
                                 <BadgeCheck className="size-2.5" />
-                                passed
+                                validated
                               </span>
                             )}
                           </div>
@@ -393,12 +393,12 @@ function MetricLegend() {
           <span className="font-medium text-foreground">Win rate</span> — how often it finished a trade in profit.
         </p>
         <p>
-          <span className="font-medium text-foreground">Avg per trade</span> — the typical result per trade, measured
+          <span className="font-medium text-foreground">Historical Edge</span> — the typical result per trade, measured
           against what you risked. So +0.30R means it earned about 0.30× your risk each time on average, after costs.
         </p>
         <p>
-          <span className="font-medium text-foreground">Reward vs risk</span> — total winnings divided by total losses.
-          Above 1× means it won more than it lost.
+          <span className="font-medium text-foreground">Historical Consistency</span> — total winnings divided by total
+          losses. Above 1× means it won more than it lost.
         </p>
       </div>
     </details>
@@ -416,7 +416,7 @@ function SurvivedBadge({ small }: { small?: boolean }) {
       title="Still made money on data it was never tuned on — the check most strategies fail"
     >
       <BadgeCheck className={small ? "size-3" : "size-3.5"} />
-      Passed unseen data
+      SightLine Validated
     </span>
   )
 }

@@ -102,12 +102,13 @@ export function DeskView() {
             <span className="font-medium text-foreground">Win rate</span> — how often it finished a trade in profit.
           </p>
           <p>
-            <span className="font-medium text-foreground">Avg per trade</span> — the typical result per trade, measured
-            against what you risked. +0.30R means about 0.30× your risk earned each time on average, after costs.
+            <span className="font-medium text-foreground">Historical Edge</span> — the typical result per trade,
+            measured against what you risked. +0.30R means about 0.30× your risk earned each time on average, after
+            costs.
           </p>
           <p>
-            <span className="font-medium text-foreground">Reward vs risk</span> — total winnings divided by total
-            losses. Above 1× means it won more than it lost.
+            <span className="font-medium text-foreground">Historical Consistency</span> — total winnings divided by
+            total losses. Above 1× means it won more than it lost.
           </p>
         </div>
       </details>
@@ -142,7 +143,7 @@ function DeskCard({ item, frozen, onRemove }: { item: DeskItem; frozen: boolean;
                 className="inline-flex shrink-0 items-center gap-1 rounded-full bg-chart-4/15 px-2 py-0.5 text-[10px] font-medium text-chart-4"
                 title="Still made money on data it was never tuned on — the check most strategies fail"
               >
-                <BadgeCheck className="size-3" /> Passed unseen data
+                <BadgeCheck className="size-3" /> SightLine Validated
               </span>
             )}
           </div>
@@ -165,8 +166,8 @@ function DeskCard({ item, frozen, onRemove }: { item: DeskItem; frozen: boolean;
       </div>
       <div className="grid grid-cols-3 gap-2 p-4">
         <Metric label="Win rate" value={`${item.winRate}%`} />
-        <Metric label="Avg per trade" value={`${item.expectancy > 0 ? "+" : ""}${item.expectancy}R`} tone="good" />
-        <Metric label="Reward vs risk" value={`${item.profitFactor.toFixed(2)}×`} tone="good" />
+        <Metric label="Historical Edge" value={`${item.expectancy > 0 ? "+" : ""}${item.expectancy}R`} tone="good" />
+        <Metric label="Historical Consistency" value={`${item.profitFactor.toFixed(2)}×`} tone="good" />
       </div>
       <DeskSignalPath coinId={item.symbol} timeframe={item.timeframe} assetName={item.assetName} frozen={frozen} />
     </div>
