@@ -465,10 +465,10 @@ function StrategyStep({
         onClick={onContinue}
         className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
       >
-        Choose my assets <ArrowRight className="size-4" />
+        Next: Choose compatible assets <ArrowRight className="size-4" />
       </button>
       <p className="text-center text-[11px] text-muted-foreground">
-        Next: pick the validated markets you want SightLine to monitor.
+        We&apos;ll show you the markets where this system met our validation standards.
       </p>
     </div>
   )
@@ -536,12 +536,12 @@ function MarketPicker({
           <BadgeCheck className="size-3.5" /> Step 2 · Validated for you
         </div>
         <h2 className="text-balance text-2xl font-semibold leading-tight sm:text-3xl">
-          Choose your monitored assets
+          Your strategy has been assigned
         </h2>
         <p className="mt-2 text-pretty text-sm text-muted-foreground">
           {frozen
             ? "Your plan is paused. Upgrade to start monitoring markets again."
-            : `Your system was matched to how you trade, then we searched our validated research for the assets where it consistently met SightLine's standards. Only those appear below — pick up to ${limit}.`}
+            : `We tested thousands of historical combinations and found the assets where your assigned system consistently met SightLine's validation standards. Only those appear below — pick up to ${limit} to monitor.`}
         </p>
       </div>
 
