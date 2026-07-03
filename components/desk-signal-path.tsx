@@ -4,7 +4,6 @@ import useSWR from "swr"
 import Link from "next/link"
 import { Compass, Loader2, BellRing, ArrowUpRight, ArrowDownRight, Radio, RefreshCw, PauseCircle, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatPrice } from "@/lib/format"
 import type { TradeSignal } from "@/lib/signal"
 
 type SeriesPoint = { t: number; c: number }
@@ -78,12 +77,40 @@ function smoothPath(pts: { x: number; y: number }[]): string {
   return d
 }
 
+// Round-number price ticks for the axis, so the gutter reads like a real
+// trading HUD (…, 536, 538, 540, …) instead of arbitrary values.
+function niceTicks(min: number, max: number, count = 5): number[] {
+  const range = max - min || 1
+  const raw = range / count
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)))
+  const norm = raw / mag
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag
+  const start = Math.ceil(min / step) * step
+  const ticks: number[] = []
+  for (let v = start; v <= max + 1e-9; v += step) ticks.push(Number(v.toFixed(6)))
+  return ticks
+}
+
+const fmtLevel = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtAxis = (v: number) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2))
+
+// A named horizontal level with its own colour + style. The Path travels
+// through these: entry (green), resistance (red ceiling to break), target
+// (gold) and invalidation (red floor).
+type Level = { key: string; label: string; value: number; color: string; style: "solid" | "dashed"; star?: boolean }
+
+const PILL_LABEL: Record<Stage, string> = {
+  watching: "WATCHING",
+  "lining-up": "APPROACHING",
+  live: "ENTRY ALIGNED",
+}
+
 // ---------------------------------------------------------------------------
-// The SightLine Path — the one chart on the card. It renders the market as a
-// single flowing, glowing path tinted by the live state (muted watching, amber
-// lining-up, glow-green LONG / glow-red SHORT). A traveling tip dot marks the
-// current position, and once a setup fires the strategy's entry band, stop and
-// first target are overlaid as reference lines so the plan lives on the Path.
+// The SightLine Path — the one and only chart on the card. Rendered as a
+// terminal-style HUD: a glowing path that starts as grey history and turns
+// live-state colour (green LONG / red SHORT / amber approaching) as it climbs
+// through the named levels, with a bright travelling tip marking NOW, a price
+// axis down the right, and OPEN/MID/NOW along the bottom.
 // ---------------------------------------------------------------------------
 function SightLinePathChart({
   series,
@@ -97,145 +124,212 @@ function SightLinePathChart({
   color: string
 }) {
   const W = 600
-  const H = 200
-  const PAD = 6
+  const H = 220
+  const PLOT_R = 0.85 // reserve the right gutter for the price axis
+  const plotW = W * PLOT_R
+  const padY = 14
 
   const closes = series.map((p) => p.c)
-  const live = stage === "live" && signal
-  // When a setup is live, fold the plan levels into the vertical domain so the
-  // dashed entry/stop/target lines are always visible on the Path.
-  const domainVals = [...closes]
-  if (live && signal) {
-    domainVals.push(signal.entry.low, signal.entry.high, signal.stopLoss)
-    if (signal.targets[0]) domainVals.push(signal.targets[0].price)
-  }
-  const min = Math.min(...domainVals)
-  const max = Math.max(...domainVals)
-  const range = max - min || 1
-  const x = (i: number) => PAD + (i / (closes.length - 1)) * (W - PAD * 2)
-  const y = (v: number) => PAD + (1 - (v - min) / range) * (H - PAD * 2)
-
-  const pts = closes.map((v, i) => ({ x: x(i), y: y(v) }))
-  const pathD = smoothPath(pts)
-  const areaD = pathD ? `${pathD} L ${(W - PAD).toFixed(1)},${H - PAD} L ${PAD},${H - PAD} Z` : ""
-  const lastX = x(closes.length - 1)
-  const lastY = y(closes[closes.length - 1])
-  const uid = `${stage}-${signal?.direction ?? "n"}`
-  const gid = `deskgrad-${uid}`
-  const glowId = `deskglow-${uid}`
+  const dir = signal?.direction
   const active = stage !== "watching"
 
-  const levelLine = (v: number, stroke: string, label: string, dashed = true) => {
-    const yy = y(v)
-    // Keep the label inside the chart: below the line if it's near the top edge,
-    // above it otherwise, so the topmost/bottommost levels never clip.
-    const labelY = yy < 16 ? yy + 12 : yy - 3
-    return (
-      <g>
-        <line
-          x1={PAD}
-          x2={W - PAD}
-          y1={yy}
-          y2={yy}
-          stroke={stroke}
-          strokeWidth={1.25}
-          strokeDasharray={dashed ? "5 4" : undefined}
-          opacity={0.9}
-        />
-        <text x={PAD + 3} y={labelY} fontSize={11} fill={stroke} className="font-medium tabular-nums">
-          {label}
-        </text>
-      </g>
-    )
+  // Build the named levels from the signal. When there are two targets we treat
+  // the nearer as RESISTANCE (a ceiling) and the further as TARGET, mirroring
+  // the reference HUD; otherwise we show the single target.
+  const levels: Level[] = []
+  if (signal) {
+    const t = signal.targets
+    const target = t.length ? t[t.length - 1].price : undefined
+    const resistance = t.length >= 2 ? t[0].price : undefined
+    if (target !== undefined)
+      levels.push({ key: "target", label: "TARGET", value: target, color: "var(--color-chart-4)", style: "dashed", star: true })
+    if (resistance !== undefined)
+      levels.push({ key: "resistance", label: "RESISTANCE", value: resistance, color: "var(--color-destructive)", style: "solid" })
+    levels.push({ key: "entry", label: "ENTRY", value: signal.entry.high, color: "var(--color-chart-3)", style: "dashed" })
+    levels.push({ key: "inval", label: "INVALIDATION", value: signal.stopLoss, color: "var(--color-destructive)", style: "dashed" })
   }
 
+  // Vertical domain covers the price series and every level, padded so nothing
+  // sits flush against an edge.
+  const domainVals = [...closes, ...levels.map((l) => l.value)]
+  let min = Math.min(...domainVals)
+  let max = Math.max(...domainVals)
+  const rawRange = max - min || 1
+  min -= rawRange * 0.08
+  max += rawRange * 0.08
+  const range = max - min || 1
+
+  const x = (i: number) => (i / Math.max(1, closes.length - 1)) * plotW
+  const y = (v: number) => padY + (1 - (v - min) / range) * (H - padY * 2)
+  const pct = (n: number, total: number) => `${((n / total) * 100).toFixed(2)}%`
+
+  const pts = closes.map((v, i) => ({ x: x(i), y: y(v) }))
+  // Split the Path into settled history (grey) and the live leg (state colour).
+  const splitIdx = Math.max(1, Math.floor(pts.length * 0.55))
+  const historyD = smoothPath(pts.slice(0, splitIdx + 1))
+  const activeD = smoothPath(pts.slice(splitIdx))
+
+  const tipX = x(closes.length - 1)
+  const tipY = y(closes[closes.length - 1])
+  const uid = `${stage}-${dir ?? "n"}`
+  const glowId = `pathglow-${uid}`
+  const areaId = `patharea-${uid}`
+
+  const entryV = signal?.entry
+  const targetLevel = levels.find((l) => l.key === "target")
+  const ticks = niceTicks(min + range * 0.05, max - range * 0.05, 5)
+
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="h-32 w-full sm:h-36"
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={`SightLine Path, ${STAGE_LABEL[stage].toLowerCase()}`}
-    >
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.2} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-        {/* Soft glow so the Path reads as a living signal line, not a price plot. */}
-        <filter id={glowId} x="-20%" y="-40%" width="140%" height="180%">
-          <feGaussianBlur stdDeviation={active ? 3 : 1.4} result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
+    <div className="relative h-44 w-full overflow-hidden bg-[oklch(0.16_0.01_260)] font-mono sm:h-52">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="absolute inset-0 h-full w-full"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`SightLine Path, ${STAGE_LABEL[stage].toLowerCase()}`}
+      >
+        <defs>
+          <linearGradient id={areaId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.22} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+          <filter id={glowId} x="-30%" y="-60%" width="160%" height="220%">
+            <feGaussianBlur stdDeviation={active ? 4 : 2} result="b" />
+            <feMerge>
+              <feMergeNode in="b" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
 
-      {/* faint trail under the Path */}
-      {areaD && <path d={areaD} fill={`url(#${gid})`} stroke="none" />}
+        {/* faint price gridlines */}
+        {ticks.map((v) => (
+          <line key={`g${v}`} x1={0} x2={plotW} y1={y(v)} y2={y(v)} stroke="var(--color-border)" strokeWidth={1} opacity={0.4} />
+        ))}
 
-      {/* plan overlays once a setup is live (drawn under the Path line) */}
-      {live && signal && (
-        <>
+        {/* target zone (entry → target) tinted, invalidation floor tinted red */}
+        {entryV && targetLevel && (
           <rect
-            x={PAD}
-            width={W - PAD * 2}
-            y={Math.min(y(signal.entry.high), y(signal.entry.low))}
-            height={Math.abs(y(signal.entry.low) - y(signal.entry.high)) || 1}
-            fill={color}
-            opacity={0.1}
+            x={0}
+            width={plotW}
+            y={Math.min(y(targetLevel.value), y(entryV.high))}
+            height={Math.abs(y(entryV.high) - y(targetLevel.value)) || 1}
+            fill="var(--color-chart-3)"
+            opacity={0.06}
           />
-          {levelLine(signal.stopLoss, "var(--color-destructive)", `Stop ${formatPrice(signal.stopLoss)}`)}
-          {signal.targets[0] &&
-            levelLine(signal.targets[0].price, "var(--color-chart-3)", `Target ${formatPrice(signal.targets[0].price)}`)}
-          {levelLine(signal.entry.high, color, `Entry ${formatPrice(signal.entry.high)}`)}
-        </>
-      )}
+        )}
+        {signal && (
+          <rect x={0} width={plotW} y={y(signal.stopLoss)} height={Math.max(0, H - padY - y(signal.stopLoss))} fill="var(--color-destructive)" opacity={0.06} />
+        )}
 
-      {/* the SightLine Path itself */}
-      <path
-        d={pathD}
-        fill="none"
-        stroke={color}
-        strokeWidth={2.25}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-        filter={`url(#${glowId})`}
-      />
+        {/* entry band */}
+        {entryV && (
+          <rect
+            x={0}
+            width={plotW}
+            y={Math.min(y(entryV.high), y(entryV.low))}
+            height={Math.abs(y(entryV.low) - y(entryV.high)) || 1}
+            fill="var(--color-chart-3)"
+            opacity={0.12}
+          />
+        )}
 
-      {/* traveling tip: the Path's current position */}
-      {active && (
-        <circle cx={lastX} cy={lastY} r={8} fill={color} opacity={0.25}>
-          <animate attributeName="r" values="4;10;4" dur="1.8s" repeatCount="indefinite" />
-          <animate attributeName="opacity" values="0.35;0;0.35" dur="1.8s" repeatCount="indefinite" />
-        </circle>
-      )}
-      <circle cx={lastX} cy={lastY} r={3.5} fill={color} vectorEffect="non-scaling-stroke" filter={`url(#${glowId})`} />
-    </svg>
+        {/* named level lines */}
+        {levels.map((l) => (
+          <line
+            key={l.key}
+            x1={0}
+            x2={plotW}
+            y1={y(l.value)}
+            y2={y(l.value)}
+            stroke={l.color}
+            strokeWidth={l.style === "solid" ? 2 : 1.4}
+            strokeDasharray={l.style === "dashed" ? "6 5" : undefined}
+            opacity={0.95}
+          />
+        ))}
+
+        {/* area under the Path */}
+        {historyD && (
+          <path
+            d={`${smoothPath(pts)} L ${plotW.toFixed(1)},${(H - padY).toFixed(1)} L 0,${(H - padY).toFixed(1)} Z`}
+            fill={`url(#${areaId})`}
+            stroke="none"
+          />
+        )}
+
+        {/* settled history (grey) */}
+        <path d={historyD} fill="none" stroke="var(--color-muted-foreground)" strokeOpacity={0.55} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        {/* live leg (state colour, glowing) */}
+        <path d={activeD} fill="none" stroke={color} strokeWidth={active ? 4 : 3} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" filter={`url(#${glowId})`} />
+
+        {/* travelling tip = NOW */}
+        {active && (
+          <circle cx={tipX} cy={tipY} r={11} fill={color} opacity={0.3}>
+            <animate attributeName="r" values="6;14;6" dur="1.8s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.4;0;0.4" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+        )}
+        <circle cx={tipX} cy={tipY} r={8} fill={color} opacity={0.35} filter={`url(#${glowId})`} />
+        <circle cx={tipX} cy={tipY} r={4.5} fill="var(--color-foreground)" vectorEffect="non-scaling-stroke" />
+      </svg>
+
+      {/* ---- HTML overlay: crisp monospace labels (SVG text would stretch) ---- */}
+      <div className="pointer-events-none absolute inset-0">
+        {/* price axis */}
+        {ticks.map((v) => (
+          <span
+            key={`t${v}`}
+            className="absolute right-1 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
+            style={{ top: pct(y(v), H) }}
+          >
+            {fmtAxis(v)}
+          </span>
+        ))}
+
+        {/* named level chips */}
+        {levels.map((l) => (
+          <span
+            key={`c${l.key}`}
+            className="absolute left-1 -translate-y-1/2 whitespace-nowrap rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide tabular-nums backdrop-blur-sm"
+            style={{ top: pct(y(l.value), H), color: l.color }}
+          >
+            {l.star ? "★ " : ""}
+            {l.label} {fmtLevel(l.value)}
+          </span>
+        ))}
+
+        {/* state pill near the tip */}
+        <span
+          className="absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+          style={{
+            left: `min(${pct(tipX, W)}, 74%)`,
+            top: `calc(${pct(tipY, H)} - 8px)`,
+            color,
+            borderColor: color,
+            backgroundColor: "oklch(0.16 0.01 260 / 0.85)",
+          }}
+        >
+          <span className="mr-1 inline-block size-1.5 rounded-full align-middle" style={{ backgroundColor: color }} />
+          {PILL_LABEL[stage]}
+        </span>
+
+        {/* time axis */}
+        <span className="absolute bottom-1 left-1 text-[9px] uppercase tracking-widest text-muted-foreground">Open</span>
+        <span className="absolute bottom-1 left-[42%] text-[9px] uppercase tracking-widest text-muted-foreground">Mid</span>
+        <span
+          className="absolute bottom-1 -translate-x-1/2 text-[9px] font-semibold uppercase tracking-widest"
+          style={{ left: pct(tipX, W), color }}
+        >
+          Now
+        </span>
+      </div>
+    </div>
   )
 }
 
 function ChartSkeleton() {
-  return <div className="h-32 w-full animate-pulse bg-secondary/50 sm:h-36" aria-hidden />
-}
-
-function KeyLevel({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return (
-    <div className="rounded-lg bg-secondary/50 px-2 py-1.5 text-center">
-      <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div
-        className={cn(
-          "mt-0.5 text-xs font-semibold tabular-nums",
-          tone === "good" && "text-chart-3",
-          tone === "bad" && "text-destructive",
-        )}
-      >
-        {value}
-      </div>
-    </div>
-  )
+  return <div className="h-44 w-full animate-pulse bg-secondary/50 sm:h-52" aria-hidden />
 }
 
 // Compact relative timestamp for "last update" (e.g. "just now", "3m ago").
@@ -351,17 +445,6 @@ export function DeskSignalPath({
           <ChartSkeleton />
         )}
       </div>
-
-      {/* Key levels — the plan on the market, shown whenever a setup is live. */}
-      {isLive && data && (
-        <div className="grid grid-cols-3 gap-2 px-4 pt-2">
-          <KeyLevel label="Entry" value={formatPrice(data.signal.entry.high)} />
-          <KeyLevel label="Stop" value={formatPrice(data.signal.stopLoss)} tone="bad" />
-          {data.signal.targets[0] && (
-            <KeyLevel label="Target" value={formatPrice(data.signal.targets[0].price)} tone="good" />
-          )}
-        </div>
-      )}
 
       {/* Payload row: the Clerk's message for the current state */}
       <div className="px-4 pb-3 pt-1">
