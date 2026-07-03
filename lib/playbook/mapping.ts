@@ -8,9 +8,11 @@
 //     trades >= 30  AND  expectancy > 0  AND  profitFactor >= 1.3
 //
 // Intraday note: same-session pairings clear the SAME bar, but their edge per
-// trade is thin (costs bite hardest at speed) and fewer survive out-of-sample —
-// so we surface them honestly, small-edge numbers and all, rather than hiding
-// or inflating them.
+// trade is the thinnest of any horizon (expectancy ~0.04-0.10R, profit factor
+// hugging the 1.3 floor) because costs bite hardest at speed. Out-of-sample the
+// results are mixed — the calm mean-reversion names held up while the faster
+// momentum/breakout variants often weakened. We surface all of it honestly,
+// small-edge numbers and all, rather than hiding or inflating it.
 //
 // "tier" reflects confidence in the edge:
 //   strong = large sample (>=60 trades) AND profit factor >= 1.6

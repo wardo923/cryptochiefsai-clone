@@ -2,9 +2,9 @@
 // THE WIZARD — beginner-facing front door to the validated roster.
 //
 // The user answers 7 plain-English questions. We secretly score their answers
-// against the PROVEN_PAIRINGS (the 79 strategy/ticker pairings that survived
-// real-cost backtesting, gold-standard survivors preferred) and hand back the
-// single best-fit pairing — WITHOUT ever revealing the strategy's logic.
+// against the full PROVEN_PAIRINGS set (every strategy/ticker/timeframe pairing
+// that survived real-cost backtesting, gold-standard survivors preferred) and
+// hand back the single best-fit pairing — WITHOUT revealing the strategy logic.
 //
 // Honesty rule baked in: the matcher can ONLY return a pairing that already
 // exists in the validated set. If a user's answers map to nothing proven, it
