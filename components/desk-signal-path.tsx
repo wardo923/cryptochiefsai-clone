@@ -57,13 +57,35 @@ const STAGE_LABEL: Record<Stage, string> = {
   live: "Signal live",
 }
 
+// Smooth a set of [x,y] points into an SVG path `d` string using a
+// Catmull-Rom spline converted to cubic beziers. This is what gives the
+// SightLine Path its flowing, deliberate line rather than a jagged price plot.
+function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return ""
+  if (pts.length === 2) return `M ${pts[0].x},${pts[0].y} L ${pts[1].x},${pts[1].y}`
+  let d = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2] ?? p2
+    const c1x = p1.x + (p2.x - p0.x) / 6
+    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6
+    const c2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+  }
+  return d
+}
+
 // ---------------------------------------------------------------------------
-// The chart — the hero of the card. Plots the recent price line, tinted by the
-// live state, and overlays the strategy's entry band, stop and first target as
-// dashed reference lines the moment a setup fires so you can see the plan on
-// the chart itself.
+// The SightLine Path — the one chart on the card. It renders the market as a
+// single flowing, glowing path tinted by the live state (muted watching, amber
+// lining-up, glow-green LONG / glow-red SHORT). A traveling tip dot marks the
+// current position, and once a setup fires the strategy's entry band, stop and
+// first target are overlaid as reference lines so the plan lives on the Path.
 // ---------------------------------------------------------------------------
-function LiveChart({
+function SightLinePathChart({
   series,
   stage,
   signal,
@@ -81,7 +103,7 @@ function LiveChart({
   const closes = series.map((p) => p.c)
   const live = stage === "live" && signal
   // When a setup is live, fold the plan levels into the vertical domain so the
-  // dashed entry/stop/target lines are always visible on the chart.
+  // dashed entry/stop/target lines are always visible on the Path.
   const domainVals = [...closes]
   if (live && signal) {
     domainVals.push(signal.entry.low, signal.entry.high, signal.stopLoss)
@@ -93,11 +115,15 @@ function LiveChart({
   const x = (i: number) => PAD + (i / (closes.length - 1)) * (W - PAD * 2)
   const y = (v: number) => PAD + (1 - (v - min) / range) * (H - PAD * 2)
 
-  const linePts = closes.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")
-  const areaPts = `${PAD},${H - PAD} ${linePts} ${(W - PAD).toFixed(1)},${H - PAD}`
+  const pts = closes.map((v, i) => ({ x: x(i), y: y(v) }))
+  const pathD = smoothPath(pts)
+  const areaD = pathD ? `${pathD} L ${(W - PAD).toFixed(1)},${H - PAD} L ${PAD},${H - PAD} Z` : ""
   const lastX = x(closes.length - 1)
   const lastY = y(closes[closes.length - 1])
-  const gid = `deskgrad-${stage}-${signal?.direction ?? "n"}`
+  const uid = `${stage}-${signal?.direction ?? "n"}`
+  const gid = `deskgrad-${uid}`
+  const glowId = `deskglow-${uid}`
+  const active = stage !== "watching"
 
   const levelLine = (v: number, stroke: string, label: string, dashed = true) => {
     const yy = y(v)
@@ -129,31 +155,29 @@ function LiveChart({
       className="h-32 w-full sm:h-36"
       preserveAspectRatio="none"
       role="img"
-      aria-label={`Live price chart, ${STAGE_LABEL[stage].toLowerCase()}`}
+      aria-label={`SightLine Path, ${STAGE_LABEL[stage].toLowerCase()}`}
     >
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.22} />
+          <stop offset="0%" stopColor={color} stopOpacity={0.2} />
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
+        {/* Soft glow so the Path reads as a living signal line, not a price plot. */}
+        <filter id={glowId} x="-20%" y="-40%" width="140%" height="180%">
+          <feGaussianBlur stdDeviation={active ? 3 : 1.4} result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
       </defs>
 
-      {/* price area + line */}
-      <polygon points={areaPts} fill={`url(#${gid})`} stroke="none" />
-      <polyline
-        points={linePts}
-        fill="none"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-      />
+      {/* faint trail under the Path */}
+      {areaD && <path d={areaD} fill={`url(#${gid})`} stroke="none" />}
 
-      {/* plan overlays once a setup is live */}
+      {/* plan overlays once a setup is live (drawn under the Path line) */}
       {live && signal && (
         <>
-          {/* entry band */}
           <rect
             x={PAD}
             width={W - PAD * 2}
@@ -169,12 +193,26 @@ function LiveChart({
         </>
       )}
 
-      {/* current price marker */}
-      <circle cx={lastX} cy={lastY} r={3.5} fill={color} vectorEffect="non-scaling-stroke" />
-      {stage !== "watching" && <circle cx={lastX} cy={lastY} r={7} fill={color} opacity={0.25}>
-        <animate attributeName="r" values="4;9;4" dur="1.8s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="0.35;0;0.35" dur="1.8s" repeatCount="indefinite" />
-      </circle>}
+      {/* the SightLine Path itself */}
+      <path
+        d={pathD}
+        fill="none"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+        filter={`url(#${glowId})`}
+      />
+
+      {/* traveling tip: the Path's current position */}
+      {active && (
+        <circle cx={lastX} cy={lastY} r={8} fill={color} opacity={0.25}>
+          <animate attributeName="r" values="4;10;4" dur="1.8s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.35;0;0.35" dur="1.8s" repeatCount="indefinite" />
+        </circle>
+      )}
+      <circle cx={lastX} cy={lastY} r={3.5} fill={color} vectorEffect="non-scaling-stroke" filter={`url(#${glowId})`} />
     </svg>
   )
 }
@@ -308,7 +346,7 @@ export function DeskSignalPath({
             </p>
           </div>
         ) : series.length >= 2 ? (
-          <LiveChart series={series} stage={stage} signal={data?.signal} color={color} />
+          <SightLinePathChart series={series} stage={stage} signal={data?.signal} color={color} />
         ) : (
           <ChartSkeleton />
         )}
