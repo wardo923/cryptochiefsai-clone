@@ -10,6 +10,7 @@ import {
   CircleCheck,
   Compass,
   Lock,
+  Radar,
   RotateCcw,
   Sparkles,
   TrendingUp,
@@ -36,7 +37,7 @@ const TF_LABEL: Record<string, string> = {
   position: "Position (weeks)",
 }
 
-type Phase = "questions" | "assigned" | "markets" | "deployed"
+type Phase = "questions" | "configuring" | "markets" | "strategy" | "deployed"
 
 type AssignedSystem = {
   best: PublicPairing
@@ -106,11 +107,23 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
   const limit = plan ? effectiveTickerLimit(plan) : 0
   const frozen = plan ? isFrozen(plan) : false
 
+  // The market the strategy reveal speaks to: the highest-ranked market the
+  // user actually picked (falls back to the assigned system's best market).
+  const primary = useMemo<PublicPairing | null>(() => {
+    if (!assigned) return null
+    return assigned.markets.find((m) => selected.includes(m.symbol)) ?? assigned.best
+  }, [assigned, selected])
+
+  const primaryReasons = useMemo(
+    () => (primary ? fitReasons(primary, answers as WizardAnswers) : []),
+    [primary, answers],
+  )
+
   function choose(value: string) {
     const next = { ...answers, [q.id]: value }
     setAnswers(next)
     if (step + 1 < total) setStep(step + 1)
-    else setPhase("assigned")
+    else setPhase("configuring") // → thinking splash, then market selection
   }
 
   function restart() {
@@ -133,9 +146,10 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
     if (!assigned) return
     const chosen = assigned.markets.filter((m) => selected.includes(m.symbol))
     chosen.forEach((p, i) => {
-      const base = name.trim() || assigned.best.strategyName
+      const trimmed = name.trim()
+      const label = chosen.length > 1 ? `${trimmed || "My Path"} · ${p.assetName}` : trimmed || `My ${p.assetName} Path`
       addToDesk({
-        name: chosen.length > 1 ? `${base} · ${p.assetName}` : base || `My ${p.assetName} Plan`,
+        name: label,
         strategyId: p.strategyId,
         strategyName: p.strategyName,
         symbol: p.symbol,
@@ -164,8 +178,8 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
         />
       )}
 
-      {phase === "assigned" && assigned && (
-        <AssignedStep assigned={assigned} onContinue={() => setPhase("markets")} onRestart={restart} />
+      {phase === "configuring" && assigned && (
+        <ConfiguringSplash onDone={() => setPhase("markets")} />
       )}
 
       {phase === "markets" && assigned && (
@@ -176,10 +190,20 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
           limit={limit}
           frozen={frozen}
           planLabel={plan ? statusLabel(plan) : ""}
+          onContinue={() => setPhase("strategy")}
+          onRestart={restart}
+        />
+      )}
+
+      {phase === "strategy" && assigned && primary && (
+        <StrategyStep
+          primary={primary}
+          reasons={primaryReasons}
+          marketCount={selected.length}
           name={name}
           setName={setName}
           onDeploy={deploy}
-          onBack={() => setPhase("assigned")}
+          onBack={() => setPhase("markets")}
         />
       )}
 
@@ -264,34 +288,127 @@ function QuestionStep({
 }
 
 // ----------------------------------------------------------------------------
-// "Your Path is Ready" — reveal the assigned system, then send them to pick
-// markets. We never expose strategy internals or the words "compatible tickers".
-function AssignedStep({
-  assigned,
-  onContinue,
-  onRestart,
+// "Configuring" splash — the thinking beat between the questions and the market
+// list. SightLine appears to work: a scanning radar + rotating status lines,
+// then it auto-advances to the markets that actually matched.
+function ConfiguringSplash({ onDone }: { onDone: () => void }) {
+  const STEPS = [
+    "Reading your answers",
+    "Scanning proven systems",
+    "Matching markets to how you trade",
+    "Ranking by real-cost edge",
+  ]
+  const [i, setI] = useState(0)
+
+  useEffect(() => {
+    const stepMs = 620
+    const tick = window.setInterval(() => setI((n) => Math.min(n + 1, STEPS.length - 1)), stepMs)
+    const done = window.setTimeout(onDone, stepMs * STEPS.length + 350)
+    return () => {
+      window.clearInterval(tick)
+      window.clearTimeout(done)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-8 py-10 text-center">
+      <div className="relative flex size-28 items-center justify-center">
+        <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
+        <span className="absolute inset-2 rounded-full border border-primary/30" />
+        <span
+          className="absolute inset-2 rounded-full border-2 border-transparent border-t-primary animate-spin"
+          style={{ animationDuration: "1.4s" }}
+        />
+        <Radar className="size-10 text-primary" />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <h2 className="text-balance text-lg font-semibold leading-tight sm:text-xl">
+          SightLine is configuring the best markets for your Path
+        </h2>
+        <p className="text-pretty text-sm text-muted-foreground">This takes a moment — we only match what we&apos;ve tested.</p>
+      </div>
+
+      <div className="flex w-full max-w-xs flex-col gap-2.5">
+        {STEPS.map((s, idx) => {
+          const state = idx < i ? "done" : idx === i ? "active" : "pending"
+          return (
+            <div
+              key={s}
+              className={cn(
+                "flex items-center gap-2.5 text-sm transition-colors",
+                state === "pending" && "text-muted-foreground/40",
+                state === "active" && "text-foreground",
+                state === "done" && "text-muted-foreground",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex size-5 shrink-0 items-center justify-center rounded-full border",
+                  state === "done" && "border-chart-3 bg-chart-3/15 text-chart-3",
+                  state === "active" && "border-primary text-primary",
+                  state === "pending" && "border-border text-transparent",
+                )}
+              >
+                {state === "done" ? (
+                  <Check className="size-3" />
+                ) : state === "active" ? (
+                  <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                ) : null}
+              </span>
+              <span className="text-left">{s}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Strategy reveal — shown AFTER the user picks their markets. We never print the
+// strategy's internal name; the user names their own Path here, then deploys.
+function StrategyStep({
+  primary,
+  reasons,
+  marketCount,
+  name,
+  setName,
+  onDeploy,
+  onBack,
 }: {
-  assigned: AssignedSystem
-  onContinue: () => void
-  onRestart: () => void
+  primary: PublicPairing
+  reasons: string[]
+  marketCount: number
+  name: string
+  setName: (v: string) => void
+  onDeploy: () => void
+  onBack: () => void
 }) {
-  const p = assigned.best
+  const p = primary
   const survived = p.oosVerdict === "robust"
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-primary">
-        <Sparkles className="size-4" />
-        Your Path is Ready
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-primary">
+          <Sparkles className="size-4" />
+          Your strategy is ready
+        </div>
+        <button onClick={onBack} className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          <ArrowLeft className="size-3" /> Back
+        </button>
       </div>
       <p className="text-pretty text-sm text-muted-foreground">
-        Based on your answers, SightLine has configured the trading system that best matches how you trade.
+        Based on your answers, SightLine configured the system that best matches how you trade — and backtested it on your{" "}
+        {marketCount > 1 ? `${marketCount} markets` : "market"}.
       </p>
 
       <div className={cn("overflow-hidden rounded-2xl border bg-card", survived ? "border-chart-4/50" : "border-primary/40")}>
         <div className={cn("border-b border-border px-5 py-4", survived ? "bg-chart-4/10" : "bg-primary/5")}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-lg font-semibold">{p.strategyName}</span>
+            <span className="text-lg font-semibold">Build your strategy</span>
             {survived && (
               <span className="inline-flex items-center gap-1 rounded-full bg-chart-4/15 px-2 py-1 text-xs font-medium text-chart-4">
                 <BadgeCheck className="size-3.5" /> Survived OOS
@@ -308,7 +425,7 @@ function AssignedStep({
 
         <div className="p-5">
           <div className="mb-4 flex flex-col gap-1.5">
-            {assigned.reasons.map((r) => (
+            {reasons.map((r) => (
               <div key={r} className="flex items-start gap-2 text-sm">
                 <CircleCheck className="mt-0.5 size-4 shrink-0 text-chart-3" />
                 <span className="text-pretty text-muted-foreground">{r}</span>
@@ -330,25 +447,35 @@ function AssignedStep({
         </div>
       </div>
 
-      <button
-        onClick={onContinue}
-        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-      >
-        Select the markets you&apos;d like me to monitor
-        <ArrowRight className="size-4" />
-      </button>
-      <button
-        onClick={onRestart}
-        className="inline-flex h-10 w-full items-center justify-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <RotateCcw className="size-3.5" /> Start over
-      </button>
+      <div className="rounded-2xl border border-border bg-secondary/30 p-5">
+        <label htmlFor="strat-name" className="text-sm font-medium">
+          Name this Path
+        </label>
+        <p className="mt-0.5 text-xs text-muted-foreground">How it&apos;ll show on your Desk.</p>
+        <input
+          id="strat-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={`My ${p.assetName} Path`}
+          maxLength={40}
+          className="mt-3 h-12 w-full rounded-lg border border-border bg-card px-3 text-base outline-none transition-colors focus:border-primary"
+        />
+        <button
+          onClick={onDeploy}
+          className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          {marketCount > 1 ? `Deploy ${marketCount} markets to my Desk` : "Deploy to my Desk"}
+          <ArrowRight className="size-4" />
+        </button>
+      </div>
     </div>
   )
 }
 
 // ----------------------------------------------------------------------------
-// Market selection — only the assigned system's markets, capped by plan limit.
+// Market selection — the markets that actually matched the assigned system,
+// shown as a ticker grid. Multi-select capped by the plan limit; continue to
+// the strategy reveal once at least one is picked.
 function MarketPicker({
   assigned,
   selected,
@@ -356,10 +483,8 @@ function MarketPicker({
   limit,
   frozen,
   planLabel,
-  name,
-  setName,
-  onDeploy,
-  onBack,
+  onContinue,
+  onRestart,
 }: {
   assigned: AssignedSystem
   selected: string[]
@@ -367,33 +492,29 @@ function MarketPicker({
   limit: number
   frozen: boolean
   planLabel: string
-  name: string
-  setName: (v: string) => void
-  onDeploy: () => void
-  onBack: () => void
+  onContinue: () => void
+  onRestart: () => void
 }) {
   const atLimit = selected.length >= limit
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-primary">
-          <Compass className="size-4" />
-          {assigned.best.strategyName}
+        <div className="flex items-center gap-2 font-mono text-xs font-medium uppercase tracking-widest text-chart-3">
+          <Compass className="size-3.5" />
+          Markets · Matched to you
         </div>
-        <button onClick={onBack} className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
-          <ArrowLeft className="size-3" /> Back
+        <button onClick={onRestart} className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          <RotateCcw className="size-3" /> Start over
         </button>
       </div>
 
       <div>
-        <h2 className="text-balance text-lg font-semibold leading-tight sm:text-xl">
-          Which markets should I monitor?
-        </h2>
-        <p className="mt-1 text-pretty text-sm text-muted-foreground">
+        <h2 className="text-balance text-2xl font-semibold leading-tight sm:text-3xl">Which market do you trade most?</h2>
+        <p className="mt-2 text-pretty text-sm text-muted-foreground">
           {frozen
-            ? "Your plan is frozen. Upgrade to start monitoring markets again."
-            : `Pick the markets you'd like watched. Your ${planLabel} plan covers ${limit} at a time.`}
+            ? "Your plan is paused. Upgrade to start monitoring markets again."
+            : `These are the markets that matched your answers. We run one system per market — pick up to ${limit}.`}
         </p>
       </div>
 
@@ -401,17 +522,19 @@ function MarketPicker({
         <UpgradeBanner />
       ) : (
         <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs">
-          <span className="text-muted-foreground">Markets watched</span>
+          <span className="text-muted-foreground">
+            Watching on your <span className="font-medium text-foreground">{planLabel}</span> plan
+          </span>
           <span className="font-semibold tabular-nums">
             {selected.length} of {limit}
           </span>
         </div>
       )}
 
-      <div className="flex flex-col gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5">
         {assigned.markets.map((m) => {
           const isSelected = selected.includes(m.symbol)
-          // A market is locked if we're at the limit (and it isn't already picked) or frozen.
+          // Locked if we're at the limit (and it isn't already picked) or frozen.
           const locked = frozen || (!isSelected && atLimit)
           const survived = m.oosVerdict === "robust"
           return (
@@ -420,7 +543,7 @@ function MarketPicker({
               onClick={() => (locked ? undefined : onToggle(m.symbol))}
               aria-disabled={locked}
               className={cn(
-                "group flex items-center justify-between gap-3 rounded-xl border px-4 py-3.5 text-left transition-all",
+                "group relative flex min-h-[76px] flex-col justify-center gap-0.5 rounded-xl border px-4 py-3 text-left transition-all",
                 isSelected
                   ? "border-primary bg-primary/5"
                   : locked
@@ -428,25 +551,16 @@ function MarketPicker({
                     : "border-border bg-card hover:border-primary/50 hover:bg-secondary/40",
               )}
             >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium">{m.assetName}</span>
-                  <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {m.assetClass}
-                  </span>
-                  {survived && (
-                    <span className="inline-flex items-center gap-0.5 rounded bg-chart-4/15 px-1 py-0.5 text-[9px] font-medium text-chart-4">
-                      <BadgeCheck className="size-2.5" /> survived
-                    </span>
-                  )}
-                </div>
-                <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  Edge +{m.expectancy}R · {m.winRate}% win · {TF_LABEL[m.timeframe]}
-                </div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-lg font-bold tracking-tight">{m.symbol.toUpperCase()}</span>
+                {survived && <BadgeCheck className="size-3.5 text-chart-4" aria-label="Survived out-of-sample" />}
               </div>
+              <span className="truncate font-mono text-xs text-muted-foreground">{m.assetName}</span>
+
+              {/* selection / lock indicator */}
               <span
                 className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors",
+                  "absolute right-2.5 top-2.5 flex size-5 items-center justify-center rounded-full border transition-colors",
                   isSelected
                     ? "border-primary bg-primary text-primary-foreground"
                     : locked
@@ -454,12 +568,25 @@ function MarketPicker({
                       : "border-border text-transparent group-hover:border-primary/50",
                 )}
               >
-                {locked && !isSelected ? <Lock className="size-3" /> : <Check className="size-3.5" />}
+                {locked && !isSelected ? <Lock className="size-2.5" /> : <Check className="size-3" />}
               </span>
             </button>
           )
         })}
       </div>
+
+      {/* Elite request footer — mirrors the reference "Don't see your ticker?" row. */}
+      {!frozen && (
+        <Link
+          href="/plan"
+          className="flex items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+        >
+          <Lock className="size-4 shrink-0" />
+          <span className="text-pretty">
+            Don&apos;t see your market? <span className="font-medium text-foreground">Request it on Elite.</span>
+          </span>
+        </Link>
+      )}
 
       {/* Upgrade nudge appears once they hit the limit (and aren't frozen). */}
       {!frozen && atLimit && (
@@ -480,28 +607,18 @@ function MarketPicker({
       )}
 
       {!frozen && (
-        <div className="rounded-2xl border border-border bg-secondary/30 p-5">
-          <label htmlFor="strat-name" className="text-sm font-medium">
-            Name this Path
-          </label>
-          <p className="mt-0.5 text-xs text-muted-foreground">How it&apos;ll show on your Desk.</p>
-          <input
-            id="strat-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={assigned.best.strategyName}
-            maxLength={40}
-            className="mt-3 h-12 w-full rounded-lg border border-border bg-card px-3 text-base outline-none transition-colors focus:border-primary"
-          />
-          <button
-            onClick={onDeploy}
-            disabled={selected.length === 0}
-            className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {selected.length > 1 ? `Deploy ${selected.length} markets to my Desk` : "Deploy to my Desk"}
-            <ArrowRight className="size-4" />
-          </button>
-        </div>
+        <button
+          onClick={onContinue}
+          disabled={selected.length === 0}
+          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {selected.length === 0
+            ? "Pick a market to continue"
+            : selected.length > 1
+              ? `Build my strategy for ${selected.length} markets`
+              : "Build my strategy"}
+          <ArrowRight className="size-4" />
+        </button>
       )}
     </div>
   )
