@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { BadgeCheck, Plus, Trash2, TrendingUp, Compass, Info } from "lucide-react"
 import { getDesk, removeFromDesk, type DeskItem } from "@/lib/desk"
+import { DeskSignalPath } from "@/components/desk-signal-path"
 
 const TF_LABEL: Record<string, string> = {
   swing: "Swing (days)",
@@ -118,12 +119,7 @@ function DeskCard({ item, onRemove }: { item: DeskItem; onRemove: () => void }) 
         <Metric label="Edge / trade" value={`${item.expectancy > 0 ? "+" : ""}${item.expectancy}R`} tone="good" />
         <Metric label="Profit factor" value={item.profitFactor.toFixed(2)} tone="good" />
       </div>
-      <div className="border-t border-border px-4 py-2.5">
-        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Compass className="size-3.5 text-primary" />
-          Your Clerk is watching this market for your conditions to line up.
-        </p>
-      </div>
+      <DeskSignalPath coinId={item.symbol} timeframe={item.timeframe} assetName={item.assetName} />
     </div>
   )
 }
