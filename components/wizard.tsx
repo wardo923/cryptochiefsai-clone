@@ -568,6 +568,11 @@ function MarketPicker({
               {selected.length} of {limit}
             </span>
           </div>
+          <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
+            {assigned.markets.length === 1
+              ? "This is the only market where your assigned system met our validation bar — a deliberately short, high-conviction list."
+              : `Showing all ${assigned.markets.length} markets where your assigned system cleared our validation bar. A short, curated list is by design — we'd rather show a few proven fits than pad it with unvalidated tickers.`}
+          </p>
           {capHint && (
             <p className="text-pretty text-[11px] leading-relaxed text-chart-3">
               Your {planLabel} plan monitors up to {limit} assets at once. Deselect one to swap, or upgrade to watch
