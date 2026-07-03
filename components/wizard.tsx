@@ -499,7 +499,6 @@ function MarketPicker({
   limit,
   frozen,
   planLabel,
-  onContinue,
   name,
   setName,
   onDeploy,
@@ -519,6 +518,21 @@ function MarketPicker({
   onRestart: () => void
 }) {
   const atLimit = selected.length >= limit
+  // The tier caps how many assets you can MONITOR at once — not which validated
+  // tickers you may choose among. So the whole menu stays interactive; tapping a
+  // new one while already at the cap surfaces a gentle hint instead of locking.
+  const [capHint, setCapHint] = useState(false)
+
+  const handleToggle = (symbol: string) => {
+    if (frozen) return
+    const isSelected = selected.includes(symbol)
+    if (!isSelected && atLimit) {
+      setCapHint(true)
+      return
+    }
+    setCapHint(false)
+    onToggle(symbol)
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -548,13 +562,21 @@ function MarketPicker({
       {frozen ? (
         <UpgradeBanner />
       ) : (
-        <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs">
-          <span className="text-muted-foreground">
-            Watching on your <span className="font-medium text-foreground">{planLabel}</span> plan
-          </span>
-          <span className="font-semibold tabular-nums">
-            {selected.length} of {limit}
-          </span>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs">
+            <span className="text-muted-foreground">
+              Watching on your <span className="font-medium text-foreground">{planLabel}</span> plan
+            </span>
+            <span className="font-semibold tabular-nums">
+              {selected.length} of {limit}
+            </span>
+          </div>
+          {capHint && (
+            <p className="text-pretty text-[11px] leading-relaxed text-chart-3">
+              Your {planLabel} plan monitors up to {limit} assets at once. Deselect one to swap, or upgrade to watch
+              more — every validated asset stays available to choose from.
+            </p>
+          )}
         </div>
       )}
 
@@ -575,12 +597,13 @@ function MarketPicker({
       <div className="grid grid-cols-2 gap-2.5">
         {assigned.markets.map((m) => {
           const isSelected = selected.includes(m.symbol)
-          // Locked if we're at the limit (and it isn't already picked) or frozen.
-          const locked = frozen || (!isSelected && atLimit)
+          // Only a paused plan locks a card. Hitting the tier cap never disables
+          // other validated tickers — the full menu stays choosable.
+          const locked = frozen
           return (
             <button
               key={m.symbol}
-              onClick={() => (locked ? undefined : onToggle(m.symbol))}
+              onClick={() => handleToggle(m.symbol)}
               aria-disabled={locked}
               className={cn(
                 "group relative flex min-h-[88px] flex-col justify-center gap-0.5 rounded-xl border px-4 py-3 text-left transition-all",
