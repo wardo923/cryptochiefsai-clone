@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   ArrowRight,
   BadgeCheck,
-  Ban,
   Check,
   CircleCheck,
   Compass,
@@ -45,10 +44,8 @@ type Phase = "questions" | "configuring" | "markets" | "strategy" | "deployed"
 type AssignedSystem = {
   best: PublicPairing
   reasons: string[]
+  // Every entry belongs to the assigned system — enforced in the memo below.
   markets: PublicPairing[]
-  // A few in-class assets this system was NOT validated on — shown (disabled)
-  // so the shortlist reads as deliberate curation, not an arbitrary list.
-  nonValidated: { symbol: string; assetName: string }[]
 }
 
 export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
@@ -92,19 +89,21 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
     const wantClass = a.asset === "crypto" ? "crypto" : a.asset === "stocks" ? "stock" : null
     const inClass = (p: PublicPairing) => wantClass === null || p.assetClass === wantClass
 
-    // Markets the assigned system supports, at its timeframe. Broaden if thin,
-    // but keep the asset-class filter locked at every widening step.
+    // INVARIANT: every selectable ticker MUST belong to the assigned system.
+    // We only ever narrow within `best.strategyId` — a ticker proven under a
+    // different system (or none) can never appear here. We prefer the assigned
+    // timeframe + the user's asset class, then relax those two preferences (but
+    // never the strategy) so the picker still offers a real choice.
     let markets = pairings.filter(
       (p) => p.strategyId === best.strategyId && p.timeframe === best.timeframe && inClass(p),
     )
     if (markets.length < 2) {
-      // Same strategy, any timeframe — still restricted to the chosen class.
+      // Same assigned system, any timeframe — still restricted to the chosen class.
       markets = pairings.filter((p) => p.strategyId === best.strategyId && inClass(p))
     }
-    if (markets.length < 2 && wantClass !== null) {
-      // Last resort: any proven system in the chosen class, so a crypto picker
-      // always gets crypto options instead of being shown stocks.
-      markets = pairings.filter(inClass)
+    if (markets.length === 0) {
+      // Never dead-end: keep the assigned SYSTEM, relax only the class preference.
+      markets = pairings.filter((p) => p.strategyId === best.strategyId)
     }
 
     // Sort by trust (survivors first), then edge. Asset class is already locked.
@@ -115,20 +114,7 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
       return y.expectancy - x.expectancy
     })
 
-    // Honest curation cue: a few assets in the SAME class that this assigned
-    // system was NOT validated on (they may be validated for other systems).
-    // Shown disabled so the roster reads as "these are the ones that fit this
-    // system" rather than an arbitrary shortlist.
-    const chosen = new Set(markets.map((m) => m.symbol))
-    const nonValidated = Array.from(
-      new Map(
-        pairings
-          .filter((p) => inClass(p) && !chosen.has(p.symbol))
-          .map((p) => [p.symbol, { symbol: p.symbol, assetName: p.assetName }] as const),
-      ).values(),
-    ).slice(0, 4)
-
-    return { best, reasons: fitReasons(best, a), markets, nonValidated }
+    return { best, reasons: fitReasons(best, a), markets }
   }, [phase, answers, pairings])
 
   const limit = plan ? effectiveTickerLimit(plan) : 0
@@ -637,33 +623,6 @@ function MarketPicker({
           )
         })}
       </div>
-
-      {/* Honest curation cue: assets in the same class this system was NOT
-          validated on, shown disabled so the shortlist reads as deliberate. */}
-      {!frozen && assigned.nonValidated.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Not validated for this system
-          </p>
-          <div className="grid grid-cols-2 gap-2.5">
-            {assigned.nonValidated.map((m) => (
-              <div
-                key={m.symbol}
-                className="flex min-h-[88px] cursor-not-allowed flex-col justify-center gap-0.5 rounded-xl border border-dashed border-border bg-card/30 px-4 py-3 opacity-60"
-                title="This system has no validated edge on this asset"
-              >
-                <span className="font-mono text-lg font-bold tracking-tight text-muted-foreground line-through">
-                  {m.symbol.toUpperCase()}
-                </span>
-                <span className="truncate font-mono text-xs text-muted-foreground">{m.assetName}</span>
-                <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
-                  <Ban className="size-3" /> Not validated for this system
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Elite request footer — mirrors the reference "Don't see your ticker?" row. */}
       {!frozen && (
