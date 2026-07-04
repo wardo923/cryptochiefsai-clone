@@ -18,7 +18,7 @@ export type DeskItem = {
   strategyName: string
   symbol: string
   assetName: string
-  timeframe: "swing" | "position"
+  timeframe: "intraday" | "swing" | "position"
   // Snapshot of the proven track record at deploy time (for display).
   winRate: number
   expectancy: number

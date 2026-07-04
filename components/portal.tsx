@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import useSWR from "swr"
-import { Search, RefreshCw, Activity, Hexagon, ShieldCheck, ChevronDown, EyeOff, LineChart, FlaskConical, BookOpen, Compass, LayoutGrid, ArrowRight } from "lucide-react"
+import { Search, RefreshCw, Activity, Hexagon, ShieldCheck, ChevronDown, EyeOff, LineChart, FlaskConical, BookOpen, Compass, LayoutGrid, ArrowRight, Coins } from "lucide-react"
 import type { MarketRow } from "@/lib/market"
 import { MarketTable } from "@/components/market-table"
 import { formatPct } from "@/lib/format"
@@ -186,6 +186,42 @@ export function Portal() {
         </div>
       </section>
 
+      <section className="px-4 pt-5 sm:px-6">
+        <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold">Why you can trust the numbers</h3>
+            <Link
+              href="/methodology"
+              className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary transition-opacity hover:opacity-80"
+            >
+              How we test <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <TrustPoint
+              icon={<ShieldCheck className="size-4" />}
+              title="Independently validated"
+              body="Every strategy is tested against years of real price data before it's ever shown to you."
+            />
+            <TrustPoint
+              icon={<Coins className="size-4" />}
+              title="Trading costs included"
+              body="Fees and slippage are built into every test, so the results reflect real-world trading."
+            />
+            <TrustPoint
+              icon={<Activity className="size-4" />}
+              title="Monitored over time"
+              body="Performance is tracked continuously, not frozen at a single flattering snapshot."
+            />
+            <TrustPoint
+              icon={<FlaskConical className="size-4" />}
+              title="Live testing kept separate"
+              body="Real-time forward results are tracked apart from historical backtests — never mixed together."
+            />
+          </div>
+        </div>
+      </section>
+
       <section className="flex flex-col gap-3 p-4 sm:px-6">
         <div className="flex items-center justify-between">
           <div>
@@ -267,6 +303,20 @@ export function Portal() {
       <footer className="mt-auto border-t border-border px-4 py-4 text-center text-xs text-muted-foreground sm:px-6">
         Signals are generated from live technical indicators for educational purposes only. Not financial advice.
       </footer>
+    </div>
+  )
+}
+
+function TrustPoint({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        {icon}
+      </span>
+      <div>
+        <div className="text-sm font-medium">{title}</div>
+        <p className="mt-0.5 text-pretty text-xs leading-relaxed text-muted-foreground">{body}</p>
+      </div>
     </div>
   )
 }

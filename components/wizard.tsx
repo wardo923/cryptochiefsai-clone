@@ -1,14 +1,18 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   ArrowLeft,
   ArrowRight,
   BadgeCheck,
   Check,
+  CircleAlert,
   CircleCheck,
   Compass,
+  Info,
+  Lock,
+  Radar,
   RotateCcw,
   Sparkles,
   TrendingUp,
@@ -21,29 +25,54 @@ import {
   type WizardAnswers,
 } from "@/lib/playbook/wizard"
 import { addToDesk } from "@/lib/desk"
+import {
+  effectiveTickerLimit,
+  getPlan,
+  isFrozen,
+  statusLabel,
+  type PlanState,
+} from "@/lib/plan"
 import { cn } from "@/lib/utils"
 
 const TF_LABEL: Record<string, string> = {
+  intraday: "Intraday (same session)",
   swing: "Swing (days)",
   position: "Position (weeks)",
 }
 
-type Phase = "questions" | "result" | "deployed"
+
+type Phase = "questions" | "configuring" | "markets" | "strategy" | "deployed"
+
+type AssignedSystem = {
+  best: PublicPairing
+  reasons: string[]
+  // Every entry belongs to the assigned system — enforced in the memo below.
+  markets: PublicPairing[]
+}
 
 export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
   const [step, setStep] = useState(0)
   const [answers, setAnswers] = useState<Partial<WizardAnswers>>({})
   const [phase, setPhase] = useState<Phase>("questions")
+  const [selected, setSelected] = useState<string[]>([])
   const [name, setName] = useState("")
-  const [deployedName, setDeployedName] = useState("")
+  const [deployedCount, setDeployedCount] = useState(0)
+
+  // Plan state drives how many markets the user may monitor.
+  const [plan, setPlan] = useState<PlanState | null>(null)
+  useEffect(() => {
+    setPlan(getPlan())
+    const sync = () => setPlan(getPlan())
+    window.addEventListener("plan:changed", sync)
+    return () => window.removeEventListener("plan:changed", sync)
+  }, [])
 
   const total = WIZARD_QUESTIONS.length
   const q = WIZARD_QUESTIONS[step]
 
-  // Score on the client — pairings are already stripped of hidden logic.
-  // The user is ALWAYS mapped: we score the full validated set and treat asset
-  // preference as a strong bonus, never a hard filter, so there is no dead-end.
-  const match = useMemo(() => {
+  // Assign ONE system from the answers, then expose the markets it supports.
+  // Done client-side over the already-stripped pairings (no hidden logic ships).
+  const assigned = useMemo<AssignedSystem | null>(() => {
     if (phase === "questions") return null
     const a = answers as WizardAnswers
     const assetBonus = (p: PublicPairing) => {
@@ -51,45 +80,104 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
       if (a.asset === "stocks") return p.assetClass === "stock" ? 6 : -6
       return 0
     }
-    const ranked = [...pairings].sort((x, y) => scorePairing(y, a) + assetBonus(y) - (scorePairing(x, a) + assetBonus(x)))
+    const ranked = [...pairings].sort(
+      (x, y) => scorePairing(y, a) + assetBonus(y) - (scorePairing(x, a) + assetBonus(x)),
+    )
     const best = ranked[0]
-    return { best, alternatives: ranked.slice(1, 3), reasons: fitReasons(best, a) }
+
+    // If the user picked a specific market type, we ONLY ever show that type.
+    // Picking "Crypto" must never surface a stock ticker on the picker, and
+    // vice-versa. "No preference" leaves both classes eligible.
+    const wantClass = a.asset === "crypto" ? "crypto" : a.asset === "stocks" ? "stock" : null
+    const inClass = (p: PublicPairing) => wantClass === null || p.assetClass === wantClass
+
+    // INVARIANT: every selectable ticker MUST belong to the assigned system.
+    // We only ever narrow within `best.strategyId` — a ticker proven under a
+    // different system (or none) can never appear here. We prefer the assigned
+    // timeframe + the user's asset class, then relax those two preferences (but
+    // never the strategy) so the picker still offers a real choice.
+    let markets = pairings.filter(
+      (p) => p.strategyId === best.strategyId && p.timeframe === best.timeframe && inClass(p),
+    )
+    if (markets.length < 2) {
+      // Same assigned system, any timeframe — still restricted to the chosen class.
+      markets = pairings.filter((p) => p.strategyId === best.strategyId && inClass(p))
+    }
+    if (markets.length === 0) {
+      // Never dead-end: keep the assigned SYSTEM, relax only the class preference.
+      markets = pairings.filter((p) => p.strategyId === best.strategyId)
+    }
+
+    // Sort by trust (survivors first), then edge. Asset class is already locked.
+    const rank: Record<string, number> = { robust: 0, fragile: 1, inconclusive: 2, untested: 3 }
+    markets = [...markets].sort((x, y) => {
+      const r = (rank[x.oosVerdict] ?? 3) - (rank[y.oosVerdict] ?? 3)
+      if (r !== 0) return r
+      return y.expectancy - x.expectancy
+    })
+
+    return { best, reasons: fitReasons(best, a), markets }
   }, [phase, answers, pairings])
+
+  const limit = plan ? effectiveTickerLimit(plan) : 0
+  const frozen = plan ? isFrozen(plan) : false
+
+  // The market the strategy reveal speaks to: the highest-ranked market the
+  // user actually picked (falls back to the assigned system's best market).
+  const primary = useMemo<PublicPairing | null>(() => {
+    if (!assigned) return null
+    return assigned.markets.find((m) => selected.includes(m.symbol)) ?? assigned.best
+  }, [assigned, selected])
+
+  const primaryReasons = useMemo(
+    () => (primary ? fitReasons(primary, answers as WizardAnswers) : []),
+    [primary, answers],
+  )
 
   function choose(value: string) {
     const next = { ...answers, [q.id]: value }
     setAnswers(next)
-    if (step + 1 < total) {
-      setStep(step + 1)
-    } else {
-      setPhase("result")
-    }
+    if (step + 1 < total) setStep(step + 1)
+    else setPhase("configuring") // → thinking splash, then market selection
   }
 
   function restart() {
     setStep(0)
     setAnswers({})
+    setSelected([])
     setName("")
     setPhase("questions")
   }
 
-  function deploy() {
-    if (!match?.best) return
-    const p = match.best
-    const finalName = name.trim() || `My ${p.assetName} Plan`
-    addToDesk({
-      name: finalName,
-      strategyId: p.strategyId,
-      strategyName: p.strategyName,
-      symbol: p.symbol,
-      assetName: p.assetName,
-      timeframe: p.timeframe,
-      winRate: p.winRate,
-      expectancy: p.expectancy,
-      profitFactor: p.profitFactor,
-      survived: p.oosVerdict === "robust",
+  function toggleMarket(symbol: string) {
+    setSelected((prev) => {
+      if (prev.includes(symbol)) return prev.filter((s) => s !== symbol)
+      if (prev.length >= limit) return prev // at limit — locked
+      return [...prev, symbol]
     })
-    setDeployedName(finalName)
+  }
+
+  function deploy() {
+    if (!assigned) return
+    const chosen = assigned.markets.filter((m) => selected.includes(m.symbol))
+    chosen.forEach((p, i) => {
+      const trimmed = name.trim()
+      const label = chosen.length > 1 ? `${trimmed || "My Path"} · ${p.assetName}` : trimmed || `My ${p.assetName} Path`
+      addToDesk({
+        name: label,
+        strategyId: p.strategyId,
+        strategyName: p.strategyName,
+        symbol: p.symbol,
+        assetName: p.assetName,
+        timeframe: p.timeframe,
+        winRate: p.winRate,
+        expectancy: p.expectancy,
+        profitFactor: p.profitFactor,
+        survived: p.oosVerdict === "robust",
+      })
+      void i
+    })
+    setDeployedCount(chosen.length)
     setPhase("deployed")
   }
 
@@ -105,19 +193,37 @@ export function Wizard({ pairings }: { pairings: PublicPairing[] }) {
         />
       )}
 
-      {phase === "result" && match && (
-        <ResultStep
-          match={match}
+      {phase === "configuring" && assigned && (
+        <ConfiguringSplash onDone={() => setPhase("strategy")} />
+      )}
+
+      {phase === "strategy" && assigned && primary && (
+        <StrategyStep
+          primary={primary}
+          reasons={primaryReasons}
+          validatedCount={assigned.markets.length}
+          onContinue={() => setPhase("markets")}
+          onBack={restart}
+        />
+      )}
+
+      {phase === "markets" && assigned && (
+        <MarketPicker
+          assigned={assigned}
+          selected={selected}
+          onToggle={toggleMarket}
+          limit={limit}
+          frozen={frozen}
+          planLabel={plan ? statusLabel(plan) : ""}
           name={name}
           setName={setName}
           onDeploy={deploy}
+          onBack={() => setPhase("strategy")}
           onRestart={restart}
         />
       )}
 
-      {phase === "deployed" && (
-        <DeployedStep name={deployedName} onRestart={restart} />
-      )}
+      {phase === "deployed" && <DeployedStep count={deployedCount} onRestart={restart} />}
     </div>
   )
 }
@@ -141,7 +247,6 @@ function QuestionStep({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Progress */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
@@ -173,9 +278,7 @@ function QuestionStep({
               onClick={() => onChoose(opt.value)}
               className={cn(
                 "group flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3.5 text-left transition-all",
-                active
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:border-primary/50 hover:bg-secondary/40",
+                active ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-secondary/40",
               )}
             >
               <div className="min-w-0">
@@ -185,7 +288,9 @@ function QuestionStep({
               <span
                 className={cn(
                   "flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors",
-                  active ? "border-primary bg-primary text-primary-foreground" : "border-border text-transparent group-hover:border-primary/50",
+                  active
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border text-transparent group-hover:border-primary/50",
                 )}
               >
                 <Check className="size-3.5" />
@@ -199,43 +304,134 @@ function QuestionStep({
 }
 
 // ----------------------------------------------------------------------------
-function ResultStep({
-  match,
-  name,
-  setName,
-  onDeploy,
-  onRestart,
+// "Configuring" splash — the thinking beat between the questions and the market
+// list. SightLine appears to work: a scanning radar + rotating status lines,
+// then it auto-advances to the markets that actually matched.
+function ConfiguringSplash({ onDone }: { onDone: () => void }) {
+  const STEPS = [
+    "Reading your answers",
+    "Scanning proven systems",
+    "Matching markets to how you trade",
+    "Ranking by real-cost edge",
+  ]
+  const [i, setI] = useState(0)
+
+  useEffect(() => {
+    const stepMs = 620
+    const tick = window.setInterval(() => setI((n) => Math.min(n + 1, STEPS.length - 1)), stepMs)
+    const done = window.setTimeout(onDone, stepMs * STEPS.length + 350)
+    return () => {
+      window.clearInterval(tick)
+      window.clearTimeout(done)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-8 py-10 text-center">
+      <div className="relative flex size-28 items-center justify-center">
+        <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
+        <span className="absolute inset-2 rounded-full border border-primary/30" />
+        <span
+          className="absolute inset-2 rounded-full border-2 border-transparent border-t-primary animate-spin"
+          style={{ animationDuration: "1.4s" }}
+        />
+        <Radar className="size-10 text-primary" />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <h2 className="text-balance text-lg font-semibold leading-tight sm:text-xl">
+          SightLine is checking which markets qualify for your Path
+        </h2>
+        <p className="text-pretty text-sm text-muted-foreground">This takes a moment — we only match what we&apos;ve tested.</p>
+      </div>
+
+      <div className="flex w-full max-w-xs flex-col gap-2.5">
+        {STEPS.map((s, idx) => {
+          const state = idx < i ? "done" : idx === i ? "active" : "pending"
+          return (
+            <div
+              key={s}
+              className={cn(
+                "flex items-center gap-2.5 text-sm transition-colors",
+                state === "pending" && "text-muted-foreground/40",
+                state === "active" && "text-foreground",
+                state === "done" && "text-muted-foreground",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex size-5 shrink-0 items-center justify-center rounded-full border",
+                  state === "done" && "border-chart-3 bg-chart-3/15 text-chart-3",
+                  state === "active" && "border-primary text-primary",
+                  state === "pending" && "border-border text-transparent",
+                )}
+              >
+                {state === "done" ? (
+                  <Check className="size-3" />
+                ) : state === "active" ? (
+                  <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                ) : null}
+              </span>
+              <span className="text-left">{s}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Strategy reveal — Step 1 of the calibration. SightLine shows the system it
+// assigned (never its internal logic), then hands off to asset selection. This
+// leads with the personalized match, not raw statistics.
+function StrategyStep({
+  primary,
+  reasons,
+  validatedCount,
+  onContinue,
+  onBack,
 }: {
-  match: { best: PublicPairing; alternatives: PublicPairing[]; reasons: string[] }
-  name: string
-  setName: (v: string) => void
-  onDeploy: () => void
-  onRestart: () => void
+  primary: PublicPairing
+  reasons: string[]
+  validatedCount: number
+  onContinue: () => void
+  onBack: () => void
 }) {
-  const p = match.best
+  const p = primary
   const survived = p.oosVerdict === "robust"
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-primary">
-        <Sparkles className="size-4" />
-        Your matched strategy
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-primary">
+          <Sparkles className="size-4" />
+          Step 1 · We found your system
+        </div>
+        <button onClick={onBack} className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          <RotateCcw className="size-3" /> Start over
+        </button>
       </div>
+      <p className="text-pretty text-sm text-muted-foreground">
+        We found the system that fits how you trade. Next, you&apos;ll choose the assets where we&apos;ve validated it
+        {validatedCount > 1 ? ` — ${validatedCount} qualified for this system.` : "."}
+      </p>
 
-      {/* The matched strategy — name + outcome only, logic stays hidden */}
       <div className={cn("overflow-hidden rounded-2xl border bg-card", survived ? "border-chart-4/50" : "border-primary/40")}>
         <div className={cn("border-b border-border px-5 py-4", survived ? "bg-chart-4/10" : "bg-primary/5")}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-lg font-semibold">{p.strategyName}</span>
+            <span className="text-lg font-semibold">Your Assigned System</span>
             {survived && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-chart-4/15 px-2 py-1 text-xs font-medium text-chart-4">
-                <BadgeCheck className="size-3.5" /> Survived OOS
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-chart-4/15 px-2 py-1 text-xs font-medium text-chart-4"
+                title="Still made money on data it was never tuned on — the check most strategies fail"
+              >
+                <BadgeCheck className="size-3.5" /> SightLine Validated
               </span>
             )}
           </div>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{p.assetName}</span>
-            <span className="text-muted-foreground/60">·</span>
             <span className="inline-flex items-center gap-1">
               <TrendingUp className="size-3.5" />
               {TF_LABEL[p.timeframe]}
@@ -244,9 +440,8 @@ function ResultStep({
         </div>
 
         <div className="p-5">
-          {/* Why it fits you */}
           <div className="mb-4 flex flex-col gap-1.5">
-            {match.reasons.map((r) => (
+            {reasons.map((r) => (
               <div key={r} className="flex items-start gap-2 text-sm">
                 <CircleCheck className="mt-0.5 size-4 shrink-0 text-chart-3" />
                 <span className="text-pretty text-muted-foreground">{r}</span>
@@ -254,99 +449,315 @@ function ResultStep({
             ))}
           </div>
 
-          {/* Track record */}
-          <div className="grid grid-cols-3 gap-2">
-            <Metric label="Win rate" value={`${p.winRate}%`} />
-            <Metric label="Edge / trade" value={`${p.expectancy > 0 ? "+" : ""}${p.expectancy}R`} tone="good" />
-            <Metric label="Profit factor" value={p.profitFactor.toFixed(2)} tone="good" />
+          {/* Asset-agnostic validation summary. NO win rate / edge / profit factor
+              or trade counts here — those are per-ASSET and would imply a single
+              universal number for the system. They appear per asset in Step 2. */}
+          <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/30 p-3">
+            <ValidationCheck label="Matched to your trading style" ok />
+            <ValidationCheck
+              label={survived ? "Out-of-sample validation passed" : "Out-of-sample results were mixed"}
+              ok={survived}
+            />
+            <ValidationCheck
+              label={`Validated across ${validatedCount} compatible ${validatedCount === 1 ? "asset" : "assets"}`}
+              ok
+            />
+            <ValidationCheck label="Robust across multiple market conditions" ok={survived} />
           </div>
           <p className="mt-3 text-pretty text-[11px] leading-relaxed text-muted-foreground">
-            Tested over {p.trades} trades on real data, after real costs.{" "}
-            {survived
-              ? `It also kept working on data it never trained on (+${p.oosHoldoutExpectancy ?? 0}R on the holdout).`
-              : "Past results don't guarantee future ones — this is structure, not a promise."}
+            This tells you <span className="font-medium text-foreground">how</span> you&apos;ll trade. Next, choose{" "}
+            <span className="font-medium text-foreground">where</span> — you&apos;ll see each asset&apos;s own win rate
+            and edge as you pick it.
           </p>
         </div>
       </div>
 
-      {/* Name it + deploy */}
-      <div className="rounded-2xl border border-border bg-secondary/30 p-5">
-        <label htmlFor="strat-name" className="text-sm font-medium">
-          Name your strategy
-        </label>
-        <p className="mt-0.5 text-xs text-muted-foreground">Make it yours — this is how it&apos;ll show on your Desk.</p>
-        <input
-          id="strat-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={`e.g. My ${p.assetName} Plan`}
-          maxLength={40}
-          className="mt-3 h-12 w-full rounded-lg border border-border bg-card px-3 text-base outline-none transition-colors focus:border-primary"
-        />
-        <button
-          onClick={onDeploy}
-          className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          Deploy to my Desk
-          <ArrowRight className="size-4" />
+      <button
+        onClick={onContinue}
+        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        Next: Choose compatible assets <ArrowRight className="size-4" />
+      </button>
+      <p className="text-center text-[11px] text-muted-foreground">
+        We&apos;ll show you the markets where this system met our validation standards.
+      </p>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Market selection — the markets that actually matched the assigned system,
+// shown as a ticker grid. Multi-select capped by the plan limit; continue to
+// the strategy reveal once at least one is picked.
+function MarketPicker({
+  assigned,
+  selected,
+  onToggle,
+  limit,
+  frozen,
+  planLabel,
+  name,
+  setName,
+  onDeploy,
+  onBack,
+  onRestart,
+}: {
+  assigned: AssignedSystem
+  selected: string[]
+  onToggle: (symbol: string) => void
+  limit: number
+  frozen: boolean
+  planLabel: string
+  name: string
+  setName: (v: string) => void
+  onDeploy: () => void
+  onBack: () => void
+  onRestart: () => void
+}) {
+  const atLimit = selected.length >= limit
+  // The tier caps how many assets you can MONITOR at once — not which validated
+  // tickers you may choose among. So the whole menu stays interactive; tapping a
+  // new one while already at the cap surfaces a gentle hint instead of locking.
+  const [capHint, setCapHint] = useState(false)
+
+  const handleToggle = (symbol: string) => {
+    if (frozen) return
+    const isSelected = selected.includes(symbol)
+    if (!isSelected && atLimit) {
+      setCapHint(true)
+      return
+    }
+    setCapHint(false)
+    onToggle(symbol)
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={onBack} className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          <ArrowLeft className="size-3" /> Back
         </button>
-        <button
-          onClick={onRestart}
-          className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <RotateCcw className="size-3.5" /> Start over
+        <button onClick={onRestart} className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          <RotateCcw className="size-3" /> Start over
         </button>
       </div>
 
-      {match.alternatives.length > 0 && (
-        <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Other strong fits
+      <div>
+        <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-chart-4/15 px-2.5 py-1 text-[11px] font-medium text-chart-4">
+          <BadgeCheck className="size-3.5" /> Step 2 · Validated for you
+        </div>
+        <h2 className="text-balance text-2xl font-semibold leading-tight sm:text-3xl">
+          Your strategy has been assigned
+        </h2>
+        <p className="mt-2 text-pretty text-sm text-muted-foreground">
+          {frozen
+            ? "Your plan is paused. Upgrade to start monitoring markets again."
+            : `We tested thousands of historical combinations and found the assets where your assigned system consistently met SightLine's validation standards. Only those appear below — pick up to ${limit} to monitor.`}
+        </p>
+      </div>
+
+      {frozen ? (
+        <UpgradeBanner />
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs">
+            <span className="text-muted-foreground">
+              Watching on your <span className="font-medium text-foreground">{planLabel}</span> plan
+            </span>
+            <span className="font-semibold tabular-nums">
+              {selected.length} of {limit}
+            </span>
           </div>
-          <div className="flex flex-col gap-2">
-            {match.alternatives.map((alt) => (
-              <div
-                key={`${alt.strategyId}-${alt.symbol}-${alt.timeframe}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5"
+          <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
+            {assigned.markets.length === 1
+              ? "This is the only market where your assigned system met our validation bar — a deliberately short, high-conviction list."
+              : `Showing all ${assigned.markets.length} markets where your assigned system cleared our validation bar. A short, curated list is by design — we'd rather show a few proven fits than pad it with unvalidated tickers.`}
+          </p>
+          {capHint && (
+            <p className="text-pretty text-[11px] leading-relaxed text-chart-3">
+              Your {planLabel} plan monitors up to {limit} assets at once. Deselect one to swap, or upgrade to watch
+              more — every validated asset stays available to choose from.
+            </p>
+          )}
+        </div>
+      )}
+
+      {!frozen && (
+        <details className="group">
+          <summary className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+            <Info className="size-3" />
+            Why only these markets?
+          </summary>
+          <p className="mt-1.5 text-pretty rounded-lg bg-secondary/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+            Your trading system isn&apos;t designed for every market. Rather than handing you thousands of symbols to
+            sort through, SightLine only shows the assets where this system has been validated against our research
+            standards <span className="font-medium text-foreground">and</span> fits the profile from your answers.
+          </p>
+        </details>
+      )}
+
+      <div className="grid grid-cols-2 gap-2.5">
+        {assigned.markets.map((m) => {
+          const isSelected = selected.includes(m.symbol)
+          // Only a paused plan locks a card. Hitting the tier cap never disables
+          // other validated tickers — the full menu stays choosable.
+          const locked = frozen
+          return (
+            <button
+              key={m.symbol}
+              onClick={() => handleToggle(m.symbol)}
+              aria-disabled={locked}
+              className={cn(
+                "group relative flex min-h-[88px] flex-col justify-center gap-0.5 rounded-xl border px-4 py-3 text-left transition-all",
+                isSelected
+                  ? "border-primary bg-primary/5"
+                  : locked
+                    ? "cursor-not-allowed border-border bg-card/40 opacity-50"
+                    : "border-border bg-card hover:border-primary/50 hover:bg-secondary/40",
+              )}
+            >
+              <span className="font-mono text-lg font-bold tracking-tight">{m.symbol.toUpperCase()}</span>
+              <span className="truncate font-mono text-xs text-muted-foreground">{m.assetName}</span>
+              <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-chart-4">
+                <BadgeCheck className="size-3" /> Validated · {m.trades} trades
+              </span>
+
+              {/* Truthful, per-ASSET numbers — only shown once this specific asset
+                  is selected, since win rate / edge vary by market. */}
+              {isSelected && (
+                <div className="mt-2 flex items-center gap-3 border-t border-primary/20 pt-2 font-mono text-[10px] text-muted-foreground">
+                  <span>
+                    <span className="text-foreground">{m.winRate}%</span> win
+                  </span>
+                  <span>
+                    <span className="text-chart-4">
+                      {m.expectancy > 0 ? "+" : ""}
+                      {m.expectancy}R
+                    </span>{" "}
+                    edge
+                  </span>
+                  <span>
+                    <span className="text-chart-4">{m.profitFactor.toFixed(2)}×</span> PF
+                  </span>
+                </div>
+              )}
+
+              {/* selection / lock indicator */}
+              <span
+                className={cn(
+                  "absolute right-2.5 top-2.5 flex size-5 items-center justify-center rounded-full border transition-colors",
+                  isSelected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : locked
+                      ? "border-border text-muted-foreground"
+                      : "border-border text-transparent group-hover:border-primary/50",
+                )}
               >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">{alt.strategyName}</span>
-                    {alt.oosVerdict === "robust" && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-chart-4/15 px-1 py-0.5 text-[9px] font-medium text-chart-4">
-                        <BadgeCheck className="size-2.5" /> survived
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {alt.assetName} · {TF_LABEL[alt.timeframe]}
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-[10px] uppercase text-muted-foreground">Edge</div>
-                  <div className="text-sm font-semibold tabular-nums text-chart-3">+{alt.expectancy}R</div>
-                </div>
-              </div>
-            ))}
+                {locked && !isSelected ? <Lock className="size-2.5" /> : <Check className="size-3" />}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Elite request footer — mirrors the reference "Don't see your ticker?" row. */}
+      {!frozen && (
+        <Link
+          href="/plan"
+          className="flex items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+        >
+          <Lock className="size-4 shrink-0" />
+          <span className="text-pretty">
+            Don&apos;t see your market? <span className="font-medium text-foreground">Request it on Elite.</span>
+          </span>
+        </Link>
+      )}
+
+      {/* Upgrade nudge appears once they hit the limit (and aren't frozen). */}
+      {!frozen && atLimit && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Lock className="size-4 text-primary" /> Monitor more markets
           </div>
+          <p className="mt-1 text-pretty text-xs text-muted-foreground">
+            Upgrade your plan to watch additional markets simultaneously.
+          </p>
+          <Link
+            href="/plan"
+            className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            Upgrade your plan <ArrowRight className="size-3.5" />
+          </Link>
+        </div>
+      )}
+
+      {!frozen && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-secondary/30 p-5">
+          <div>
+            <label htmlFor="path-name" className="text-sm font-medium">
+              Name this Path
+            </label>
+            <p className="mt-0.5 text-xs text-muted-foreground">How it&apos;ll show on your Desk.</p>
+            <input
+              id="path-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My Path"
+              maxLength={40}
+              className="mt-3 h-12 w-full rounded-lg border border-border bg-card px-3 text-base outline-none transition-colors focus:border-primary"
+            />
+          </div>
+          <button
+            onClick={onDeploy}
+            disabled={selected.length === 0}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {selected.length === 0
+              ? "Select an asset to continue"
+              : selected.length > 1
+                ? `Deploy ${selected.length} markets to my Desk`
+                : "Deploy to my Desk"}
+            <ArrowRight className="size-4" />
+          </button>
         </div>
       )}
     </div>
   )
 }
 
+function UpgradeBanner() {
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Lock className="size-4 text-primary" /> Monitor more markets
+      </div>
+      <p className="mt-1 text-pretty text-xs text-muted-foreground">
+        Upgrade your plan to watch markets simultaneously.
+      </p>
+      <Link
+        href="/plan"
+        className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        Upgrade your plan <ArrowRight className="size-3.5" />
+      </Link>
+    </div>
+  )
+}
+
 // ----------------------------------------------------------------------------
-function DeployedStep({ name, onRestart }: { name: string; onRestart: () => void }) {
+function DeployedStep({ count, onRestart }: { count: number; onRestart: () => void }) {
   return (
     <div className="flex flex-col items-center gap-4 rounded-2xl border border-chart-3/40 bg-chart-3/5 p-7 text-center">
       <div className="flex size-14 items-center justify-center rounded-full bg-chart-3/15">
         <Check className="size-7 text-chart-3" />
       </div>
       <div>
-        <h2 className="text-balance text-lg font-semibold">&ldquo;{name}&rdquo; is on your Desk</h2>
+        <h2 className="text-balance text-lg font-semibold">
+          {count > 1 ? `${count} markets are on your Desk` : "Your Path is on your Desk"}
+        </h2>
         <p className="mx-auto mt-1 max-w-sm text-pretty text-sm text-muted-foreground">
-          Your Clerk will watch its conditions and let you know when the structure lines up. You decide every move — we
-          never tell you to buy.
+          Your Clerk will watch {count > 1 ? "each market" : "its conditions"} and let you know when the structure lines
+          up. You decide every move — we never tell you to buy.
         </p>
       </div>
       <div className="flex w-full flex-col gap-2 sm:flex-row">
@@ -367,11 +778,15 @@ function DeployedStep({ name, onRestart }: { name: string; onRestart: () => void
   )
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: "good" }) {
+function ValidationCheck({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <div className="rounded-lg bg-secondary/50 px-2.5 py-2 text-center">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={cn("mt-0.5 text-sm font-semibold tabular-nums", tone === "good" && "text-chart-3")}>{value}</div>
+    <div className="flex items-center gap-2 text-sm">
+      {ok ? (
+        <CircleCheck className="size-4 shrink-0 text-chart-4" />
+      ) : (
+        <CircleAlert className="size-4 shrink-0 text-muted-foreground" />
+      )}
+      <span className={cn("text-pretty", ok ? "text-foreground" : "text-muted-foreground")}>{label}</span>
     </div>
   )
 }

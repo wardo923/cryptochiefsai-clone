@@ -1,9 +1,9 @@
 "use client"
 
 import useSWR from "swr"
-import { Compass, Loader2, BellRing, ArrowUpRight, ArrowDownRight, Radio, RefreshCw } from "lucide-react"
+import Link from "next/link"
+import { Compass, Loader2, BellRing, ArrowUpRight, ArrowDownRight, Radio, RefreshCw, PauseCircle, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatPrice } from "@/lib/format"
 import type { TradeSignal } from "@/lib/signal"
 
 type SeriesPoint = { t: number; c: number }
@@ -17,12 +17,21 @@ type SignalResponse = {
   generatedAt: string
 }
 
+// The Desk stores a playbook timeframe ("intraday" / "swing" / "position"), but
+// the signal engine speaks the finer-grained analysis Timeframe. Map the coarse
+// playbook value onto a concrete lane the engine understands — "intraday" runs
+// the same-session 15m lane; swing/position pass straight through.
+function toAnalysisTimeframe(tf: string): string {
+  if (tf === "intraday") return "intraday15m"
+  return tf
+}
+
 // One shared fetcher — POST the coin id + timeframe to the live signal engine.
 async function fetchSignal([, coinId, timeframe]: [string, string, string]): Promise<SignalResponse> {
   const res = await fetch("/api/signal", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ coinId, timeframe }),
+    body: JSON.stringify({ coinId, timeframe: toAnalysisTimeframe(timeframe) }),
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
@@ -56,13 +65,63 @@ const STAGE_LABEL: Record<Stage, string> = {
   live: "Signal live",
 }
 
+// Smooth a set of [x,y] points into an SVG path `d` string using a
+// Catmull-Rom spline converted to cubic beziers. This is what gives the
+// SightLine Path its flowing, deliberate line rather than a jagged price plot.
+function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return ""
+  if (pts.length === 2) return `M ${pts[0].x},${pts[0].y} L ${pts[1].x},${pts[1].y}`
+  let d = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2] ?? p2
+    const c1x = p1.x + (p2.x - p0.x) / 6
+    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6
+    const c2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+  }
+  return d
+}
+
+// Round-number price ticks for the axis, so the gutter reads like a real
+// trading HUD (…, 536, 538, 540, …) instead of arbitrary values.
+function niceTicks(min: number, max: number, count = 5): number[] {
+  const range = max - min || 1
+  const raw = range / count
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)))
+  const norm = raw / mag
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag
+  const start = Math.ceil(min / step) * step
+  const ticks: number[] = []
+  for (let v = start; v <= max + 1e-9; v += step) ticks.push(Number(v.toFixed(6)))
+  return ticks
+}
+
+const fmtLevel = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtAxis = (v: number) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2))
+
+// A named horizontal level with its own colour + style. The Path travels
+// through these: entry (green), resistance (red ceiling to break), target
+// (gold) and invalidation (red floor).
+type Level = { key: string; label: string; value: number; color: string; style: "solid" | "dashed"; star?: boolean }
+
+const PILL_LABEL: Record<Stage, string> = {
+  watching: "WATCHING",
+  "lining-up": "APPROACHING",
+  live: "ENTRY ALIGNED",
+}
+
 // ---------------------------------------------------------------------------
-// The chart — the hero of the card. Plots the recent price line, tinted by the
-// live state, and overlays the strategy's entry band, stop and first target as
-// dashed reference lines the moment a setup fires so you can see the plan on
-// the chart itself.
+// The SightLine Path — the one and only chart on the card. Rendered as a
+// terminal-style HUD: a glowing path that starts as grey history and turns
+// live-state colour (green LONG / red SHORT / amber approaching) as it climbs
+// through the named levels, with a bright travelling tip marking NOW, a price
+// axis down the right, and OPEN/MID/NOW along the bottom.
 // ---------------------------------------------------------------------------
-function LiveChart({
+function SightLinePathChart({
   series,
   stage,
   signal,
@@ -74,127 +133,245 @@ function LiveChart({
   color: string
 }) {
   const W = 600
-  const H = 200
-  const PAD = 6
+  const H = 220
+  const PLOT_R = 0.85 // reserve the right gutter for the price axis
+  const plotW = W * PLOT_R
+  const padY = 14
 
   const closes = series.map((p) => p.c)
-  const live = stage === "live" && signal
-  // When a setup is live, fold the plan levels into the vertical domain so the
-  // dashed entry/stop/target lines are always visible on the chart.
-  const domainVals = [...closes]
-  if (live && signal) {
-    domainVals.push(signal.entry.low, signal.entry.high, signal.stopLoss)
-    if (signal.targets[0]) domainVals.push(signal.targets[0].price)
+  const dir = signal?.direction
+  const active = stage !== "watching"
+
+  // Build the named levels from the signal. When there are two targets we treat
+  // the nearer as RESISTANCE (a ceiling) and the further as TARGET, mirroring
+  // the reference HUD; otherwise we show the single target.
+  const levels: Level[] = []
+  if (signal) {
+    const t = signal.targets
+    const target = t.length ? t[t.length - 1].price : undefined
+    const resistance = t.length >= 2 ? t[0].price : undefined
+    if (target !== undefined)
+      levels.push({ key: "target", label: "TARGET", value: target, color: "var(--color-chart-4)", style: "dashed", star: true })
+    if (resistance !== undefined)
+      levels.push({ key: "resistance", label: "RESISTANCE", value: resistance, color: "var(--color-destructive)", style: "solid" })
+    levels.push({ key: "entry", label: "ENTRY", value: signal.entry.high, color: "var(--color-chart-3)", style: "dashed" })
+    levels.push({ key: "inval", label: "INVALIDATION", value: signal.stopLoss, color: "var(--color-destructive)", style: "dashed" })
   }
-  const min = Math.min(...domainVals)
-  const max = Math.max(...domainVals)
+
+  // Vertical domain covers the price series and every level, padded so nothing
+  // sits flush against an edge.
+  const domainVals = [...closes, ...levels.map((l) => l.value)]
+  let min = Math.min(...domainVals)
+  let max = Math.max(...domainVals)
+  const rawRange = max - min || 1
+  min -= rawRange * 0.08
+  max += rawRange * 0.08
   const range = max - min || 1
-  const x = (i: number) => PAD + (i / (closes.length - 1)) * (W - PAD * 2)
-  const y = (v: number) => PAD + (1 - (v - min) / range) * (H - PAD * 2)
 
-  const linePts = closes.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")
-  const areaPts = `${PAD},${H - PAD} ${linePts} ${(W - PAD).toFixed(1)},${H - PAD}`
-  const lastX = x(closes.length - 1)
-  const lastY = y(closes[closes.length - 1])
-  const gid = `deskgrad-${stage}-${signal?.direction ?? "n"}`
+  const x = (i: number) => (i / Math.max(1, closes.length - 1)) * plotW
+  const y = (v: number) => padY + (1 - (v - min) / range) * (H - padY * 2)
+  const pct = (n: number, total: number) => `${((n / total) * 100).toFixed(2)}%`
 
-  const levelLine = (v: number, stroke: string, label: string, dashed = true) => {
-    const yy = y(v)
-    // Keep the label inside the chart: below the line if it's near the top edge,
-    // above it otherwise, so the topmost/bottommost levels never clip.
-    const labelY = yy < 16 ? yy + 12 : yy - 3
-    return (
-      <g>
-        <line
-          x1={PAD}
-          x2={W - PAD}
-          y1={yy}
-          y2={yy}
-          stroke={stroke}
-          strokeWidth={1.25}
-          strokeDasharray={dashed ? "5 4" : undefined}
-          opacity={0.9}
-        />
-        <text x={PAD + 3} y={labelY} fontSize={11} fill={stroke} className="font-medium tabular-nums">
-          {label}
-        </text>
-      </g>
-    )
-  }
+  const pts = closes.map((v, i) => ({ x: x(i), y: y(v) }))
+  // Split the Path into settled history (grey) and the live leg (state colour).
+  const splitIdx = Math.max(1, Math.floor(pts.length * 0.55))
+  const historyD = smoothPath(pts.slice(0, splitIdx + 1))
+  const activeD = smoothPath(pts.slice(splitIdx))
+
+  const tipX = x(closes.length - 1)
+  const tipY = y(closes[closes.length - 1])
+  const uid = `${stage}-${dir ?? "n"}`
+  const glowId = `pathglow-${uid}`
+  const areaId = `patharea-${uid}`
+
+  const entryV = signal?.entry
+  const targetLevel = levels.find((l) => l.key === "target")
+  const ticks = niceTicks(min + range * 0.05, max - range * 0.05, 5)
 
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="h-32 w-full sm:h-36"
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={`Live price chart, ${STAGE_LABEL[stage].toLowerCase()}`}
-    >
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.22} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-      </defs>
+    <div className="relative h-44 w-full overflow-hidden bg-[oklch(0.16_0.01_260)] font-mono sm:h-52">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="absolute inset-0 h-full w-full"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`SightLine Path, ${STAGE_LABEL[stage].toLowerCase()}`}
+      >
+        <defs>
+          <linearGradient id={areaId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.22} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+          <filter id={glowId} x="-30%" y="-60%" width="160%" height="220%">
+            <feGaussianBlur stdDeviation={active ? 4 : 2} result="b" />
+            <feMerge>
+              <feMergeNode in="b" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
 
-      {/* price area + line */}
-      <polygon points={areaPts} fill={`url(#${gid})`} stroke="none" />
-      <polyline
-        points={linePts}
-        fill="none"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-      />
+        {/* faint price gridlines */}
+        {ticks.map((v) => (
+          <line key={`g${v}`} x1={0} x2={plotW} y1={y(v)} y2={y(v)} stroke="var(--color-border)" strokeWidth={1} opacity={0.4} />
+        ))}
 
-      {/* plan overlays once a setup is live */}
-      {live && signal && (
-        <>
-          {/* entry band */}
+        {/* target zone (entry → target) tinted, invalidation floor tinted red */}
+        {entryV && targetLevel && (
           <rect
-            x={PAD}
-            width={W - PAD * 2}
-            y={Math.min(y(signal.entry.high), y(signal.entry.low))}
-            height={Math.abs(y(signal.entry.low) - y(signal.entry.high)) || 1}
-            fill={color}
-            opacity={0.1}
+            x={0}
+            width={plotW}
+            y={Math.min(y(targetLevel.value), y(entryV.high))}
+            height={Math.abs(y(entryV.high) - y(targetLevel.value)) || 1}
+            fill="var(--color-chart-3)"
+            opacity={0.06}
           />
-          {levelLine(signal.stopLoss, "var(--color-destructive)", `Stop ${formatPrice(signal.stopLoss)}`)}
-          {signal.targets[0] &&
-            levelLine(signal.targets[0].price, "var(--color-chart-3)", `Target ${formatPrice(signal.targets[0].price)}`)}
-          {levelLine(signal.entry.high, color, `Entry ${formatPrice(signal.entry.high)}`)}
-        </>
-      )}
+        )}
+        {signal && (
+          <rect x={0} width={plotW} y={y(signal.stopLoss)} height={Math.max(0, H - padY - y(signal.stopLoss))} fill="var(--color-destructive)" opacity={0.06} />
+        )}
 
-      {/* current price marker */}
-      <circle cx={lastX} cy={lastY} r={3.5} fill={color} vectorEffect="non-scaling-stroke" />
-      {stage !== "watching" && <circle cx={lastX} cy={lastY} r={7} fill={color} opacity={0.25}>
-        <animate attributeName="r" values="4;9;4" dur="1.8s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="0.35;0;0.35" dur="1.8s" repeatCount="indefinite" />
-      </circle>}
-    </svg>
+        {/* entry band */}
+        {entryV && (
+          <rect
+            x={0}
+            width={plotW}
+            y={Math.min(y(entryV.high), y(entryV.low))}
+            height={Math.abs(y(entryV.low) - y(entryV.high)) || 1}
+            fill="var(--color-chart-3)"
+            opacity={0.12}
+          />
+        )}
+
+        {/* named level lines */}
+        {levels.map((l) => (
+          <line
+            key={l.key}
+            x1={0}
+            x2={plotW}
+            y1={y(l.value)}
+            y2={y(l.value)}
+            stroke={l.color}
+            strokeWidth={l.style === "solid" ? 2 : 1.4}
+            strokeDasharray={l.style === "dashed" ? "6 5" : undefined}
+            opacity={0.95}
+          />
+        ))}
+
+        {/* area under the Path */}
+        {historyD && (
+          <path
+            d={`${smoothPath(pts)} L ${plotW.toFixed(1)},${(H - padY).toFixed(1)} L 0,${(H - padY).toFixed(1)} Z`}
+            fill={`url(#${areaId})`}
+            stroke="none"
+          />
+        )}
+
+        {/* settled history (grey) */}
+        <path d={historyD} fill="none" stroke="var(--color-muted-foreground)" strokeOpacity={0.55} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        {/* live leg (state colour, glowing) */}
+        <path d={activeD} fill="none" stroke={color} strokeWidth={active ? 4 : 3} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" filter={`url(#${glowId})`} />
+
+        {/* travelling tip = NOW */}
+        {active && (
+          <circle cx={tipX} cy={tipY} r={11} fill={color} opacity={0.3}>
+            <animate attributeName="r" values="6;14;6" dur="1.8s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.4;0;0.4" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+        )}
+        <circle cx={tipX} cy={tipY} r={8} fill={color} opacity={0.35} filter={`url(#${glowId})`} />
+        <circle cx={tipX} cy={tipY} r={4.5} fill="var(--color-foreground)" vectorEffect="non-scaling-stroke" />
+      </svg>
+
+      {/* ---- HTML overlay: crisp monospace labels (SVG text would stretch) ---- */}
+      <div className="pointer-events-none absolute inset-0">
+        {/* price axis */}
+        {ticks.map((v) => (
+          <span
+            key={`t${v}`}
+            className="absolute right-1 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
+            style={{ top: pct(y(v), H) }}
+          >
+            {fmtAxis(v)}
+          </span>
+        ))}
+
+        {/* named level chips */}
+        {levels.map((l) => (
+          <span
+            key={`c${l.key}`}
+            className="absolute left-1 -translate-y-1/2 whitespace-nowrap rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide tabular-nums backdrop-blur-sm"
+            style={{ top: pct(y(l.value), H), color: l.color }}
+          >
+            {l.star ? "★ " : ""}
+            {l.label} {fmtLevel(l.value)}
+          </span>
+        ))}
+
+        {/* state pill near the tip */}
+        <span
+          className="absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+          style={{
+            left: `min(${pct(tipX, W)}, 74%)`,
+            top: `calc(${pct(tipY, H)} - 8px)`,
+            color,
+            borderColor: color,
+            backgroundColor: "oklch(0.16 0.01 260 / 0.85)",
+          }}
+        >
+          <span className="mr-1 inline-block size-1.5 rounded-full align-middle" style={{ backgroundColor: color }} />
+          {PILL_LABEL[stage]}
+        </span>
+
+        {/* time axis */}
+        <span className="absolute bottom-1 left-1 text-[9px] uppercase tracking-widest text-muted-foreground">Open</span>
+        <span className="absolute bottom-1 left-[42%] text-[9px] uppercase tracking-widest text-muted-foreground">Mid</span>
+        <span
+          className="absolute bottom-1 -translate-x-1/2 text-[9px] font-semibold uppercase tracking-widest"
+          style={{ left: pct(tipX, W), color }}
+        >
+          Now
+        </span>
+      </div>
+    </div>
   )
 }
 
 function ChartSkeleton() {
-  return <div className="h-32 w-full animate-pulse bg-secondary/50 sm:h-36" aria-hidden />
+  return <div className="h-44 w-full animate-pulse bg-secondary/50 sm:h-52" aria-hidden />
+}
+
+// Compact relative timestamp for "last update" (e.g. "just now", "3m ago").
+function formatUpdatedAt(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ""
+  const diff = Date.now() - then
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
 }
 
 export function DeskSignalPath({
   coinId,
   timeframe,
   assetName,
+  frozen = false,
 }: {
   coinId: string
-  timeframe: "swing" | "position"
+  timeframe: "intraday" | "swing" | "position"
   assetName: string
+  frozen?: boolean
 }) {
   const { data, error, isLoading, isValidating, mutate } = useSWR(["signal", coinId, timeframe], fetchSignal, {
     // Feels live without hammering the model: re-check on an interval and on focus.
-    refreshInterval: 90_000,
-    revalidateOnFocus: true,
+    // When the account is frozen we stop polling entirely — the last known Path
+    // stays on screen, but no new updates are fetched.
+    refreshInterval: frozen ? 0 : 90_000,
+    revalidateOnFocus: !frozen,
+    revalidateIfStale: !frozen,
     dedupingInterval: 30_000,
     keepPreviousData: true,
     shouldRetryOnError: false,
@@ -205,43 +382,60 @@ export function DeskSignalPath({
   const dir = data?.signal.direction
   const color = stageColor(stage, dir)
   const series = data?.series ?? []
+  const lastUpdated = data?.generatedAt ? formatUpdatedAt(data.generatedAt) : null
 
   return (
     <div
       className={cn(
         "border-t border-border transition-colors",
-        isLive && "bg-chart-3/5",
-        isLive && dir === "SHORT" && "bg-destructive/5",
-        stage === "lining-up" && "bg-chart-4/5",
+        !frozen && isLive && "bg-chart-3/5",
+        !frozen && isLive && dir === "SHORT" && "bg-destructive/5",
+        !frozen && stage === "lining-up" && "bg-chart-4/5",
       )}
     >
       {/* Header row: what the Clerk is doing right now */}
       <div className="flex items-center justify-between gap-3 px-4 pt-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="relative flex size-2.5 shrink-0">
-            <span
-              className={cn(
-                "absolute inline-flex size-full rounded-full opacity-75",
-                stage !== "watching" ? "animate-ping" : "",
-              )}
-              style={{ backgroundColor: stage !== "watching" ? color : "transparent" }}
-            />
-            <span
-              className="relative inline-flex size-2.5 rounded-full"
-              style={{ backgroundColor: stage === "watching" ? "var(--color-muted-foreground)" : color }}
-            />
-          </span>
-          <p className="truncate text-xs font-semibold" style={{ color }}>
-            {isLoading && !data ? "Clerk is checking the market…" : `Clerk · ${STAGE_LABEL[stage]}`}
-          </p>
+        {frozen ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <PauseCircle className="size-3.5 shrink-0 text-muted-foreground" />
+            <p className="truncate text-xs font-semibold text-muted-foreground">Updates Paused</p>
+          </div>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="relative flex size-2.5 shrink-0">
+              <span
+                className={cn(
+                  "absolute inline-flex size-full rounded-full opacity-75",
+                  stage !== "watching" ? "animate-ping" : "",
+                )}
+                style={{ backgroundColor: stage !== "watching" ? color : "transparent" }}
+              />
+              <span
+                className="relative inline-flex size-2.5 rounded-full"
+                style={{ backgroundColor: stage === "watching" ? "var(--color-muted-foreground)" : color }}
+              />
+            </span>
+            <p className="truncate text-xs font-semibold" style={{ color }}>
+              {isLoading && !data ? "Clerk is checking the market…" : `Clerk · ${STAGE_LABEL[stage]}`}
+            </p>
+          </div>
+        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {lastUpdated && (
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              {frozen ? "Last update" : "Updated"} {lastUpdated}
+            </span>
+          )}
+          {!frozen && (
+            <button
+              onClick={() => mutate()}
+              aria-label="Re-check now"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {isValidating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+            </button>
+          )}
         </div>
-        <button
-          onClick={() => mutate()}
-          aria-label="Re-check now"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {isValidating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-        </button>
       </div>
 
       {/* The chart — the main feature. Colours shift with the live state. */}
@@ -255,7 +449,7 @@ export function DeskSignalPath({
             </p>
           </div>
         ) : series.length >= 2 ? (
-          <LiveChart series={series} stage={stage} signal={data?.signal} color={color} />
+          <SightLinePathChart series={series} stage={stage} signal={data?.signal} color={color} />
         ) : (
           <ChartSkeleton />
         )}
@@ -263,7 +457,25 @@ export function DeskSignalPath({
 
       {/* Payload row: the Clerk's message for the current state */}
       <div className="px-4 pb-3 pt-1">
-        {isLive && data ? (
+        {frozen ? (
+          <div
+            role="status"
+            className="flex flex-col gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2.5"
+          >
+            <div className="flex items-start gap-2">
+              <PauseCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                I&apos;m no longer monitoring this market. Upgrade your plan to resume live Path updates and alerts.
+              </p>
+            </div>
+            <Link
+              href="/plan"
+              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              Upgrade <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
+        ) : isLive && data ? (
           <div
             role="status"
             aria-live="polite"

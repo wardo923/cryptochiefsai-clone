@@ -1,5 +1,5 @@
 import { PLAYBOOK } from "./strategies"
-import { PROVEN_PAIRINGS, type ProvenPairing } from "./mapping"
+import { PROVEN_PAIRINGS, type ProvenPairing, type PlaybookTimeframe } from "./mapping"
 import { oosFor, type OosVerdict } from "./validation"
 import { COINS, STOCKS } from "../coins"
 import { type WizardAnswers, isCryptoSymbol, scorePairing, fitReasons } from "./wizard"
@@ -111,10 +111,11 @@ export function pairingsForStrategy(strategyId: string): PublicPairing[] {
 // dead-end with "nothing fits". Every pairing in the set is a proven survivor,
 // so the worst case is still an honest, validated match.
 //
-// Note on timeframes: the validated set contains ONLY swing (days) and position
-// (weeks) pairings. Scalps and intraday (5m/15m/30m) are deliberately absent —
-// they lost money after real costs in testing — so the wizard can never map a
-// user to a short-term strategy. There is nothing to filter; the data enforces it.
+// Note on timeframes: the validated set spans intraday (same-session), swing
+// (days) and position (weeks). Intraday pairings cleared the same real-cost bar
+// but carry a thinner per-trade edge and fewer OOS survivors, so a user only
+// lands on one when they explicitly ask for "same session" — the scorer never
+// nudges anyone into intraday otherwise.
 // ============================================================================
 
 export type WizardMatch = {
@@ -144,6 +145,68 @@ export function matchWizard(answers: WizardAnswers): WizardMatch {
     best,
     alternatives: ranked.slice(1, 4),
     reasons: fitReasons(best, answers),
+  }
+}
+
+// ============================================================================
+// SYSTEM ASSIGNMENT — assign ONE trading system, then expose the markets that
+// system supports. Used by the wizard's "Your Path is Ready" → market-select
+// flow. The user never sees strategy internals; they see the assigned system's
+// name and the list of markets it has been proven on.
+// ============================================================================
+
+export type AssignedSystem = {
+  strategyId: string
+  strategyName: string
+  timeframe: PlaybookTimeframe
+  // Plain-English reasons this system fits the user (about pace/risk, no logic).
+  reasons: string[]
+  // Aggregate track record of the winning pairing (for the reveal card).
+  winRate: number
+  expectancy: number
+  profitFactor: number
+  survived: boolean
+  trades: number
+  // The markets this system supports — one PublicPairing per market.
+  markets: PublicPairing[]
+}
+
+export function assignSystem(answers: WizardAnswers): AssignedSystem {
+  const { best, reasons } = matchWizard(answers)
+
+  // Every market this system was proven on, at the assigned timeframe. If that
+  // roster is thin, broaden to all timeframes so there's always a real choice.
+  let markets = PROVEN_PAIRINGS.filter(
+    (p) => p.strategyId === best.strategyId && p.timeframe === best.timeframe,
+  ).map(decorate)
+  if (markets.length < 2) {
+    markets = PROVEN_PAIRINGS.filter((p) => p.strategyId === best.strategyId).map(decorate)
+  }
+
+  // Respect the user's asset-class preference as a sort nudge (crypto/stocks
+  // first) without hiding the other class — the system is what's fixed here.
+  const pref = answers.asset
+  markets.sort((a, b) => {
+    if (pref === "crypto" || pref === "stocks") {
+      const want = pref === "crypto" ? "crypto" : "stock"
+      const aw = a.assetClass === want ? 0 : 1
+      const bw = b.assetClass === want ? 0 : 1
+      if (aw !== bw) return aw - bw
+    }
+    return byTrust(a, b)
+  })
+
+  return {
+    strategyId: best.strategyId,
+    strategyName: best.strategyName,
+    timeframe: best.timeframe,
+    reasons,
+    winRate: best.winRate,
+    expectancy: best.expectancy,
+    profitFactor: best.profitFactor,
+    survived: best.oosVerdict === "robust",
+    trades: best.trades,
+    markets,
   }
 }
 

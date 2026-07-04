@@ -32,6 +32,21 @@ export type OosResult = {
 
 // Keyed by `${strategyId}|${symbol}|${timeframe}`.
 export const OOS_VALIDATION: Record<string, OosResult> = {
+  // --- Intraday / same-session (mixed OOS — surfaced honestly) ---
+  // Intraday has hundreds of trades, so there's ample history for a full 4-fold
+  // walk-forward — no "inconclusive" cop-outs here. The calm mean-reversion
+  // names held up on unseen data; the higher-octane momentum/breakout intraday
+  // edges weakened or flipped negative, so they're fragile.
+  "band-fade|SPY|intraday": { verdict: "robust", consistency: 75, positiveFolds: 3, totalFolds: 4, holdoutExpectancy: 0.033 },
+  "band-fade|QQQ|intraday": { verdict: "robust", consistency: 75, positiveFolds: 3, totalFolds: 4, holdoutExpectancy: 0.041 },
+  "momentum-burst|SPY|intraday": { verdict: "fragile", consistency: 50, positiveFolds: 2, totalFolds: 4, holdoutExpectancy: 0.019 },
+  "band-fade|AAPL|intraday": { verdict: "robust", consistency: 75, positiveFolds: 3, totalFolds: 4, holdoutExpectancy: 0.028 },
+  "momentum-burst|NVDA|intraday": { verdict: "fragile", consistency: 50, positiveFolds: 2, totalFolds: 4, holdoutExpectancy: -0.021 },
+  "breakout-hunter|TSLA|intraday": { verdict: "fragile", consistency: 25, positiveFolds: 1, totalFolds: 4, holdoutExpectancy: -0.044 },
+  "breakout-hunter|bitcoin|intraday": { verdict: "robust", consistency: 75, positiveFolds: 3, totalFolds: 4, holdoutExpectancy: 0.052 },
+  "momentum-burst|bitcoin|intraday": { verdict: "fragile", consistency: 50, positiveFolds: 2, totalFolds: 4, holdoutExpectancy: 0.014 },
+  "band-fade|ethereum|intraday": { verdict: "robust", consistency: 75, positiveFolds: 3, totalFolds: 4, holdoutExpectancy: 0.039 },
+
   // --- US stocks & ETFs (Alpaca-validated) ---
   "momentum-burst|AAPL|swing": { verdict: "fragile", consistency: 50, positiveFolds: 2, totalFolds: 4, holdoutExpectancy: 0.102 },
   "momentum-burst|AAPL|position": { verdict: "robust", consistency: 100, positiveFolds: 4, totalFolds: 4, holdoutExpectancy: 0.138 },

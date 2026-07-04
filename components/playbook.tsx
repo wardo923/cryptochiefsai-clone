@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 type Asset = { symbol: string; name: string; count: number }
 
 const TF_LABEL: Record<string, string> = {
+  intraday: "Intraday (same session)",
   swing: "Swing (days)",
   position: "Position (weeks)",
 }
@@ -228,19 +229,21 @@ function BestFitCard({ pairing }: { pairing: PublicPairing }) {
 
         <div className="mt-4 grid grid-cols-3 gap-2">
           <Metric label="Win rate" value={`${pairing.winRate}%`} />
-          <Metric label="Edge / trade" value={`${pairing.expectancy > 0 ? "+" : ""}${pairing.expectancy}R`} tone="good" />
-          <Metric label="Profit factor" value={pairing.profitFactor.toFixed(2)} tone="good" />
+          <Metric label="Historical Edge" value={`${pairing.expectancy > 0 ? "+" : ""}${pairing.expectancy}R`} tone="good" />
+          <Metric label="Historical Consistency" value={`${pairing.profitFactor.toFixed(2)}×`} tone="good" />
         </div>
+        <MetricLegend />
         <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <CircleCheck className="size-3.5 text-chart-3" />
-          Tested over {pairing.trades} trades. Worst losing streak: {pairing.maxDrawdownR}R.
+          Tested over {pairing.trades} trades. Worst losing stretch: about {pairing.maxDrawdownR}× your risk.
         </p>
         {survived && (
           <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-chart-4/10 px-2.5 py-2 text-[11px] text-foreground">
             <BadgeCheck className="size-3.5 shrink-0 text-chart-4" />
-            Survived out-of-sample: still profitable on {pairing.oosConsistency}% of unseen time periods
+            Passed the unseen-data test: still made money in {pairing.oosConsistency}% of time periods it was never
+            tuned on
             {pairing.oosHoldoutExpectancy != null
-              ? ` (+${pairing.oosHoldoutExpectancy}R on the holdout it never trained on).`
+              ? ` — the check most strategies fail.`
               : "."}
           </p>
         )}
@@ -261,11 +264,11 @@ function AltRow({ pairing }: { pairing: PublicPairing }) {
       </div>
       <div className="flex shrink-0 items-center gap-3 text-right">
         <div>
-          <div className="text-[10px] uppercase text-muted-foreground">Win</div>
+          <div className="text-[10px] uppercase text-muted-foreground">Win rate</div>
           <div className="text-sm font-semibold tabular-nums">{pairing.winRate}%</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase text-muted-foreground">Edge</div>
+          <div className="text-[10px] uppercase text-muted-foreground">Avg / trade</div>
           <div className="text-sm font-semibold tabular-nums text-chart-3">+{pairing.expectancy}R</div>
         </div>
       </div>
@@ -311,7 +314,7 @@ function StrategyBrowser({
                   {s.survivedCount > 0 && (
                     <span className="inline-flex items-center gap-1 rounded bg-chart-4/15 px-1.5 py-0.5 text-[10px] font-medium text-chart-4">
                       <BadgeCheck className="size-3" />
-                      {s.survivedCount} survived
+                      {s.survivedCount} SightLine Validated
                     </span>
                   )}
                 </div>
@@ -339,7 +342,7 @@ function StrategyBrowser({
                             {isSurvived(p) && (
                               <span className="inline-flex items-center gap-0.5 rounded bg-chart-4/15 px-1 py-0.5 text-[9px] font-medium text-chart-4">
                                 <BadgeCheck className="size-2.5" />
-                                survived
+                                validated
                               </span>
                             )}
                           </div>
@@ -376,6 +379,32 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
   )
 }
 
+// Progressive disclosure: the tiles stay plain, but anyone curious can open a
+// jargon-free decode of exactly what each number means. No trading terms.
+function MetricLegend() {
+  return (
+    <details className="group mt-2">
+      <summary className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+        <Info className="size-3" />
+        What do these mean?
+      </summary>
+      <div className="mt-1.5 space-y-1.5 rounded-lg bg-secondary/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+        <p>
+          <span className="font-medium text-foreground">Win rate</span> — how often it finished a trade in profit.
+        </p>
+        <p>
+          <span className="font-medium text-foreground">Historical Edge</span> — the typical result per trade, measured
+          against what you risked. So +0.30R means it earned about 0.30× your risk each time on average, after costs.
+        </p>
+        <p>
+          <span className="font-medium text-foreground">Historical Consistency</span> — total winnings divided by total
+          losses. Above 1× means it won more than it lost.
+        </p>
+      </div>
+    </details>
+  )
+}
+
 // The gold standard: this pairing held up on data it never trained on.
 function SurvivedBadge({ small }: { small?: boolean }) {
   return (
@@ -384,10 +413,10 @@ function SurvivedBadge({ small }: { small?: boolean }) {
         "inline-flex items-center gap-1 rounded-full bg-chart-4/15 font-medium text-chart-4",
         small ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
       )}
-      title="Survived out-of-sample validation — still profitable on data it never trained on"
+      title="Still made money on data it was never tuned on — the check most strategies fail"
     >
       <BadgeCheck className={small ? "size-3" : "size-3.5"} />
-      Survived OOS
+      SightLine Validated
     </span>
   )
 }
