@@ -304,76 +304,126 @@ function QuestionStep({
 }
 
 // ----------------------------------------------------------------------------
-// "Configuring" splash — the thinking beat between the questions and the market
-// list. SightLine appears to work: a scanning radar + rotating status lines,
-// then it auto-advances to the markets that actually matched.
+// "Configuring" splash — the cinematic analysis beat between the final question
+// and the reveal. It reads as genuine work: a radar sweep over a node field,
+// with each analysis line only appearing after the previous one completes,
+// then a "Match found" confirmation before handing off to the reveal.
 function ConfiguringSplash({ onDone }: { onDone: () => void }) {
   const STEPS = [
-    "Reading your answers",
-    "Scanning proven systems",
-    "Matching markets to how you trade",
-    "Ranking by real-cost edge",
+    "Evaluating your trading style",
+    "Analyzing your preferred market conditions",
+    "Measuring your risk profile",
+    "Comparing compatible trading systems",
+    "Validating your best match",
   ]
-  const [i, setI] = useState(0)
+  // How many checklist lines have completed (0..STEPS.length).
+  const [done, setDone] = useState(0)
+  // Splash stage: sequential analysis → match confirmed → preparing handoff.
+  const [stage, setStage] = useState<"analyzing" | "matched" | "preparing">("analyzing")
 
   useEffect(() => {
-    const stepMs = 620
-    const tick = window.setInterval(() => setI((n) => Math.min(n + 1, STEPS.length - 1)), stepMs)
-    const done = window.setTimeout(onDone, stepMs * STEPS.length + 350)
-    return () => {
-      window.clearInterval(tick)
-      window.clearTimeout(done)
+    const stepMs = 680
+    const timers: number[] = []
+    // Reveal + complete each line strictly in sequence.
+    for (let n = 1; n <= STEPS.length; n++) {
+      timers.push(window.setTimeout(() => setDone(n), stepMs * n))
     }
+    const afterList = stepMs * STEPS.length
+    timers.push(window.setTimeout(() => setStage("matched"), afterList + 300))
+    timers.push(window.setTimeout(() => setStage("preparing"), afterList + 1150))
+    timers.push(window.setTimeout(onDone, afterList + 2100))
+    return () => timers.forEach((t) => window.clearTimeout(t))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const matched = stage !== "analyzing"
+
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-8 py-10 text-center">
-      <div className="relative flex size-28 items-center justify-center">
-        <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
-        <span className="absolute inset-2 rounded-full border border-primary/30" />
+    <div className="flex min-h-[70vh] flex-col items-center justify-center gap-9 py-10 text-center">
+      {/* Radar / network visualization */}
+      <div className="relative flex size-40 items-center justify-center">
+        {/* concentric range rings */}
+        <span className="absolute inset-0 rounded-full border border-primary/15" />
+        <span className="absolute inset-[14%] rounded-full border border-primary/15" />
+        <span className="absolute inset-[30%] rounded-full border border-primary/20" />
+        {/* crosshair guides */}
+        <span className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-primary/10" />
+        <span className="absolute bottom-0 top-0 left-1/2 w-px -translate-x-1/2 bg-primary/10" />
+
+        {/* node field — subtle pinging targets */}
+        <span className="absolute left-[22%] top-[30%] size-1.5 animate-ping rounded-full bg-primary/50" style={{ animationDuration: "2.2s" }} />
+        <span className="absolute right-[26%] top-[40%] size-1 animate-ping rounded-full bg-chart-4/60" style={{ animationDuration: "2.8s" }} />
+        <span className="absolute left-[38%] bottom-[24%] size-1 animate-ping rounded-full bg-primary/40" style={{ animationDuration: "3.1s" }} />
+
+        {/* rotating sweep */}
+        {!matched && (
+          <span
+            className="absolute inset-0 animate-spin rounded-full"
+            style={{
+              animationDuration: "2.4s",
+              background:
+                "conic-gradient(from 0deg, transparent 0deg, transparent 290deg, color-mix(in oklch, var(--primary) 35%, transparent) 350deg, color-mix(in oklch, var(--primary) 55%, transparent) 360deg)",
+              maskImage: "radial-gradient(circle, transparent 30%, black 31%)",
+              WebkitMaskImage: "radial-gradient(circle, transparent 30%, black 31%)",
+            }}
+          />
+        )}
+
+        {/* center icon */}
         <span
-          className="absolute inset-2 rounded-full border-2 border-transparent border-t-primary animate-spin"
-          style={{ animationDuration: "1.4s" }}
-        />
-        <Radar className="size-10 text-primary" />
+          className={cn(
+            "relative flex size-16 items-center justify-center rounded-full border transition-colors duration-500",
+            matched ? "border-chart-3/50 bg-chart-3/15 text-chart-3" : "border-primary/40 bg-primary/10 text-primary",
+          )}
+        >
+          {matched ? <Check className="size-7" /> : <Radar className="size-7 animate-pulse" />}
+        </span>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <h2 className="text-balance text-lg font-semibold leading-tight sm:text-xl">
-          SightLine is checking which markets qualify for your Path
+      {/* Headline / subheading */}
+      <div className="flex max-w-md flex-col gap-2">
+        <h2 className="text-balance text-xl font-semibold leading-tight sm:text-2xl">
+          {stage === "analyzing"
+            ? "Analyzing your trading profile\u2026"
+            : stage === "matched"
+              ? "Match found"
+              : "Preparing your personalized SightLine Path\u2026"}
         </h2>
-        <p className="text-pretty text-sm text-muted-foreground">This takes a moment — we only match what we&apos;ve tested.</p>
+        <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
+          {stage === "preparing"
+            ? "Bringing up the system that best matches how you naturally trade."
+            : "Comparing your responses against the SightLine Strategy Matrix to identify the system that best matches how you naturally trade."}
+        </p>
       </div>
 
-      <div className="flex w-full max-w-xs flex-col gap-2.5">
+      {/* Sequential checklist — a line only appears once the prior one is done */}
+      <div className="flex w-full max-w-sm flex-col gap-2.5">
         {STEPS.map((s, idx) => {
-          const state = idx < i ? "done" : idx === i ? "active" : "pending"
+          // Hidden until it's this line's turn. Active while processing, done after.
+          const visible = matched || idx <= done
+          if (!visible) return null
+          const state = matched || idx < done ? "done" : "active"
           return (
             <div
               key={s}
               className={cn(
-                "flex items-center gap-2.5 text-sm transition-colors",
-                state === "pending" && "text-muted-foreground/40",
-                state === "active" && "text-foreground",
-                state === "done" && "text-muted-foreground",
+                "flex items-center gap-2.5 text-left text-sm transition-all duration-300",
+                state === "active" ? "text-foreground" : "text-muted-foreground",
               )}
             >
               <span
                 className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-full border",
-                  state === "done" && "border-chart-3 bg-chart-3/15 text-chart-3",
-                  state === "active" && "border-primary text-primary",
-                  state === "pending" && "border-border text-transparent",
+                  "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+                  state === "done" ? "border-chart-3 bg-chart-3/15 text-chart-3" : "border-primary text-primary",
                 )}
               >
                 {state === "done" ? (
                   <Check className="size-3" />
-                ) : state === "active" ? (
+                ) : (
                   <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-                ) : null}
+                )}
               </span>
-              <span className="text-left">{s}</span>
+              <span>{s}</span>
             </div>
           )
         })}
