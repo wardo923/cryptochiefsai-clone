@@ -548,6 +548,76 @@ function StrategyStep({
 }
 
 // ----------------------------------------------------------------------------
+// Live direction read — runs the assigned strategy's OWN logic on this exact
+// market's latest candles (via /api/playbook-live) to show whether the system
+// currently wants to BUY, SHORT, or stand aside. A computed fact, not stored.
+function LiveDirection({ pairing }: { pairing: PublicPairing }) {
+  const [state, setState] = useState<
+    { status: "loading" } | { status: "done"; direction: "LONG" | "SHORT" | "NEUTRAL"; enoughData: boolean } | { status: "error" }
+  >({ status: "loading" })
+
+  useEffect(() => {
+    let alive = true
+    setState({ status: "loading" })
+    fetch("/api/playbook-live", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        strategyId: pairing.strategyId,
+        symbol: pairing.symbol,
+        timeframe: pairing.timeframe,
+      }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return
+        if (d?.error) setState({ status: "error" })
+        else setState({ status: "done", direction: d.direction, enoughData: d.enoughData })
+      })
+      .catch(() => {
+        if (alive) setState({ status: "error" })
+      })
+    return () => {
+      alive = false
+    }
+  }, [pairing.strategyId, pairing.symbol, pairing.timeframe])
+
+  if (state.status === "loading") {
+    return <span className="text-[10px] text-muted-foreground">Checking live signal…</span>
+  }
+  if (state.status === "error") {
+    return <span className="text-[10px] text-muted-foreground">Live signal unavailable right now</span>
+  }
+  if (!state.enoughData) {
+    return <span className="text-[10px] text-muted-foreground">Not enough recent data for a live read</span>
+  }
+  if (state.direction === "NEUTRAL") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground"
+        title="The system has no active entry on this market right now — it's standing aside until its conditions line up. This is normal; setups don't fire every day."
+      >
+        <CircleAlert className="size-3" /> No setup right now — stand aside
+      </span>
+    )
+  }
+  const long = state.direction === "LONG"
+  return (
+    <span
+      className={cn("inline-flex items-center gap-1 text-[10px] font-semibold", long ? "text-chart-4" : "text-chart-3")}
+      title={
+        long
+          ? "Right now this system's entry conditions point to a LONG (buy) trade on this market."
+          : "Right now this system's entry conditions point to a SHORT (sell/short) trade on this market."
+      }
+    >
+      {long ? <TrendingUp className="size-3" /> : <ArrowUpDown className="size-3" />}
+      Live now: {long ? "BUY setup (long)" : "SHORT setup"}
+    </span>
+  )
+}
+
+// ----------------------------------------------------------------------------
 // Market selection — the markets that actually matched the assigned system,
 // shown as a ticker grid. Multi-select capped by the plan limit; continue to
 // the strategy reveal once at least one is picked.
@@ -687,20 +757,23 @@ function MarketPicker({
               {/* Truthful, per-ASSET numbers — only shown once this specific asset
                   is selected, since win rate / edge vary by market. */}
               {isSelected && (
-                <div className="mt-2 flex items-center gap-3 border-t border-primary/20 pt-2 font-mono text-[10px] text-muted-foreground">
-                  <span>
-                    <span className="text-foreground">{m.winRate}%</span> win
-                  </span>
-                  <span>
-                    <span className="text-chart-4">
-                      {m.expectancy > 0 ? "+" : ""}
-                      {m.expectancy}R
-                    </span>{" "}
-                    edge
-                  </span>
-                  <span>
-                    <span className="text-chart-4">{m.profitFactor.toFixed(2)}×</span> PF
-                  </span>
+                <div className="mt-2 flex flex-col gap-1.5 border-t border-primary/20 pt-2">
+                  <div className="flex items-center gap-3 font-mono text-[10px] text-muted-foreground">
+                    <span>
+                      <span className="text-foreground">{m.winRate}%</span> win
+                    </span>
+                    <span>
+                      <span className="text-chart-4">
+                        {m.expectancy > 0 ? "+" : ""}
+                        {m.expectancy}R
+                      </span>{" "}
+                      edge
+                    </span>
+                    <span>
+                      <span className="text-chart-4">{m.profitFactor.toFixed(2)}×</span> PF
+                    </span>
+                  </div>
+                  <LiveDirection pairing={m} />
                 </div>
               )}
 
