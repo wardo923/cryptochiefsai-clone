@@ -295,3 +295,104 @@ export const STRATEGY_BIAS: Record<string, TradeBias> = {
   "supertrend-follow": "both",
   "band-fade": "both",
 }
+
+// ============================================================================
+// LIVE READ — a two-part, honestly-separated evaluation of the assigned
+// methodology against the CURRENT market. This is NOT a "buy/sell signal":
+//
+//   bias  = which direction current conditions favor (the market read). Derived
+//           from the strategy's own DIRECTIONAL CONTEXT (trend/regime), which is
+//           a superset of its entry condition.
+//   entry = whether a qualifying entry actually exists right now. "QUALIFIED"
+//           is taken DIRECTLY from the same evaluate() that produced the proven
+//           track record, so it can never drift from the real trigger.
+//
+// We deliberately never emit "INVALIDATED": that requires prior-state tracking
+// which a single stateless read cannot honestly determine, so we omit it rather
+// than guess.
+// ============================================================================
+
+export type MarketBias = "BULL" | "BEAR" | "NEUTRAL"
+export type EntryStatus = "QUALIFIED" | "DEVELOPING" | "STAND_ASIDE"
+export type StrategyRead = { bias: MarketBias; entry: EntryStatus }
+
+export function readStrategy(id: string, window: Candle[]): StrategyRead {
+  const strat = PLAYBOOK_BY_ID[id]
+  if (!strat) return { bias: "NEUTRAL", entry: "STAND_ASIDE" }
+
+  // 1) If ALL entry criteria fire right now, it's a qualified setup. Bias follows
+  //    the actual trade direction. (Same function as the backtest — no drift.)
+  const plan = strat.evaluate(window)
+  if (plan) return { bias: plan.direction === "LONG" ? "BULL" : "BEAR", entry: "QUALIFIED" }
+
+  // 2) No qualifying entry — read the strategy's directional context to tell the
+  //    user whether a setup is developing (favored direction, trigger not yet met)
+  //    or there's simply nothing to act on.
+  switch (id) {
+    case "trend-rider": {
+      const s = buildSnapshot(window)
+      if (s.ema20 == null || s.ema50 == null || s.ema200 == null) break
+      if (s.price > s.ema200 && s.ema20 > s.ema50) return { bias: "BULL", entry: "DEVELOPING" }
+      if (s.price < s.ema200 && s.ema20 < s.ema50) return { bias: "BEAR", entry: "DEVELOPING" }
+      break
+    }
+    case "momentum-burst": {
+      const closes = window.map((c) => c.c)
+      const price = closes[closes.length - 1]
+      const m = macd(closes)
+      const e50 = ema(closes, 50)
+      if (!m || e50 == null) break
+      if (m.histogram > 0 && price > e50) return { bias: "BULL", entry: "DEVELOPING" }
+      if (m.histogram < 0 && price < e50) return { bias: "BEAR", entry: "DEVELOPING" }
+      break
+    }
+    case "pullback-buyer": {
+      // Long-only methodology: it either favors a long (uptrend intact) or stands aside.
+      const s = buildSnapshot(window)
+      if (s.ema20 == null || s.ema50 == null || s.ema200 == null) break
+      if (s.price > s.ema200 && s.ema20 > s.ema50 && (s.ema200Slope ?? 0) > 0) {
+        return { bias: "BULL", entry: "DEVELOPING" }
+      }
+      break
+    }
+    case "range-reversal": {
+      const s = buildSnapshot(window)
+      if (s.adx14 == null || s.rsi14 == null || !s.bollinger) break
+      if (s.adx14 >= 20) break // trending regime: this methodology stands aside
+      if (s.rsi14 < 32 && s.price <= s.bollinger.lower) return { bias: "BULL", entry: "DEVELOPING" }
+      if (s.rsi14 > 68 && s.price >= s.bollinger.upper) return { bias: "BEAR", entry: "DEVELOPING" }
+      break
+    }
+    case "golden-trend": {
+      const closes = window.map((c) => c.c)
+      const e50 = ema(closes, 50)
+      const e200 = ema(closes, 200)
+      if (e50 == null || e200 == null) break
+      if (e50 > e200) return { bias: "BULL", entry: "DEVELOPING" }
+      if (e50 < e200) return { bias: "BEAR", entry: "DEVELOPING" }
+      break
+    }
+    case "band-fade": {
+      const closes = window.map((c) => c.c)
+      const r = rsi(closes, 14)
+      if (r == null) break
+      if (r < 32) return { bias: "BULL", entry: "DEVELOPING" } // stretched oversold favors a long fade
+      if (r > 68) return { bias: "BEAR", entry: "DEVELOPING" } // stretched overbought favors a short fade
+      break
+    }
+    case "supertrend-follow": {
+      // The regime is directional, but entry only triggers on a FRESH flip — so
+      // there is a current market read yet no qualifying entry right now.
+      const st = supertrend(window, 10, 3)
+      const cur = st[st.length - 1]
+      if (!cur) break
+      return { bias: cur.dir === 1 ? "BULL" : "BEAR", entry: "STAND_ASIDE" }
+    }
+    case "breakout-hunter":
+    default:
+      // A breakout methodology has no standing directional bias before the range
+      // actually breaks, so there's nothing to read until then.
+      break
+  }
+  return { bias: "NEUTRAL", entry: "STAND_ASIDE" }
+}

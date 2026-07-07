@@ -548,12 +548,60 @@ function StrategyStep({
 }
 
 // ----------------------------------------------------------------------------
-// Live direction read — runs the assigned strategy's OWN logic on this exact
-// market's latest candles (via /api/playbook-live) to show whether the system
-// currently wants to BUY, SHORT, or stand aside. A computed fact, not stored.
+// Live methodology read — evaluates the assigned methodology against this exact
+// market's latest candles (via /api/playbook-live). Deliberately NOT a "buy/sell
+// signal": it reports two separate, computed facts — the current market bias and
+// whether a qualifying entry exists yet — so it reads as monitoring, not a call.
+type MarketBias = "BULL" | "BEAR" | "NEUTRAL"
+type EntryStatus = "QUALIFIED" | "DEVELOPING" | "STAND_ASIDE"
+
+const BIAS_COPY: Record<MarketBias, { label: string; desc: string; dot: string; text: string }> = {
+  BULL: {
+    label: "Bullish Bias",
+    desc: "Based on your assigned methodology, current market conditions favor long opportunities.",
+    dot: "bg-chart-3",
+    text: "text-chart-3",
+  },
+  BEAR: {
+    label: "Bearish Bias",
+    desc: "Based on your assigned methodology, current market conditions favor short opportunities.",
+    dot: "bg-destructive",
+    text: "text-destructive",
+  },
+  NEUTRAL: {
+    label: "Neutral",
+    desc: "Current market conditions do not favor either direction.",
+    dot: "bg-muted-foreground",
+    text: "text-muted-foreground",
+  },
+}
+
+const ENTRY_COPY: Record<EntryStatus, { label: string; desc: string; dot: string; text: string }> = {
+  QUALIFIED: {
+    label: "Qualified",
+    desc: "All required criteria are currently satisfied — this market meets your assigned methodology's criteria.",
+    dot: "bg-chart-3",
+    text: "text-chart-3",
+  },
+  DEVELOPING: {
+    label: "Developing",
+    desc: "Conditions are moving into alignment, but your entry criteria are not yet fully met. This market is being monitored for you.",
+    dot: "bg-chart-4",
+    text: "text-chart-4",
+  },
+  STAND_ASIDE: {
+    label: "Stand Aside",
+    desc: "No qualifying setup currently exists.",
+    dot: "bg-muted-foreground",
+    text: "text-muted-foreground",
+  },
+}
+
 function LiveDirection({ pairing }: { pairing: PublicPairing }) {
   const [state, setState] = useState<
-    { status: "loading" } | { status: "done"; direction: "LONG" | "SHORT" | "NEUTRAL"; enoughData: boolean } | { status: "error" }
+    | { status: "loading" }
+    | { status: "done"; bias: MarketBias; entry: EntryStatus; enoughData: boolean }
+    | { status: "error" }
   >({ status: "loading" })
 
   useEffect(() => {
@@ -572,7 +620,7 @@ function LiveDirection({ pairing }: { pairing: PublicPairing }) {
       .then((d) => {
         if (!alive) return
         if (d?.error) setState({ status: "error" })
-        else setState({ status: "done", direction: d.direction, enoughData: d.enoughData })
+        else setState({ status: "done", bias: d.bias, entry: d.entry, enoughData: d.enoughData })
       })
       .catch(() => {
         if (alive) setState({ status: "error" })
@@ -583,37 +631,37 @@ function LiveDirection({ pairing }: { pairing: PublicPairing }) {
   }, [pairing.strategyId, pairing.symbol, pairing.timeframe])
 
   if (state.status === "loading") {
-    return <span className="text-[10px] text-muted-foreground">Checking live signal…</span>
+    return <p className="text-[10px] text-muted-foreground">Evaluating current conditions…</p>
   }
   if (state.status === "error") {
-    return <span className="text-[10px] text-muted-foreground">Live signal unavailable right now</span>
+    return <p className="text-[10px] text-muted-foreground">Live evaluation unavailable right now.</p>
   }
   if (!state.enoughData) {
-    return <span className="text-[10px] text-muted-foreground">Not enough recent data for a live read</span>
+    return <p className="text-[10px] text-muted-foreground">Not enough recent data to evaluate this market yet.</p>
   }
-  if (state.direction === "NEUTRAL") {
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground"
-        title="The system has no active entry on this market right now — it's standing aside until its conditions line up. This is normal; setups don't fire every day."
-      >
-        <CircleAlert className="size-3" /> No setup right now — stand aside
-      </span>
-    )
-  }
-  const long = state.direction === "LONG"
+
+  const bias = BIAS_COPY[state.bias]
+  const entry = ENTRY_COPY[state.entry]
+
   return (
-    <span
-      className={cn("inline-flex items-center gap-1 text-[10px] font-semibold", long ? "text-chart-4" : "text-chart-3")}
-      title={
-        long
-          ? "Right now this system's entry conditions point to a LONG (buy) trade on this market."
-          : "Right now this system's entry conditions point to a SHORT (sell/short) trade on this market."
-      }
-    >
-      {long ? <TrendingUp className="size-3" /> : <ArrowUpDown className="size-3" />}
-      Live now: {long ? "BUY setup (long)" : "SHORT setup"}
-    </span>
+    <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-muted/30 p-2">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Current Market Read</span>
+        <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-semibold", bias.text)}>
+          <span className={cn("size-1.5 rounded-full", bias.dot)} aria-hidden="true" />
+          {bias.label}
+        </span>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">{bias.desc}</p>
+      </div>
+      <div className="flex flex-col gap-0.5 border-t border-border/60 pt-1.5">
+        <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Entry Status</span>
+        <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-semibold", entry.text)}>
+          <span className={cn("size-1.5 rounded-full", entry.dot)} aria-hidden="true" />
+          {entry.label}
+        </span>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">{entry.desc}</p>
+      </div>
+    </div>
   )
 }
 
