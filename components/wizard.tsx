@@ -5,6 +5,7 @@ import Link from "next/link"
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowUpDown,
   BadgeCheck,
   Check,
   CircleAlert,
@@ -304,76 +305,126 @@ function QuestionStep({
 }
 
 // ----------------------------------------------------------------------------
-// "Configuring" splash — the thinking beat between the questions and the market
-// list. SightLine appears to work: a scanning radar + rotating status lines,
-// then it auto-advances to the markets that actually matched.
+// "Configuring" splash — the cinematic analysis beat between the final question
+// and the reveal. It reads as genuine work: a radar sweep over a node field,
+// with each analysis line only appearing after the previous one completes,
+// then a "Match found" confirmation before handing off to the reveal.
 function ConfiguringSplash({ onDone }: { onDone: () => void }) {
   const STEPS = [
-    "Reading your answers",
-    "Scanning proven systems",
-    "Matching markets to how you trade",
-    "Ranking by real-cost edge",
+    "Evaluating your trading style",
+    "Analyzing your preferred market conditions",
+    "Measuring your risk profile",
+    "Comparing compatible trading systems",
+    "Validating your best match",
   ]
-  const [i, setI] = useState(0)
+  // How many checklist lines have completed (0..STEPS.length).
+  const [done, setDone] = useState(0)
+  // Splash stage: sequential analysis → match confirmed → preparing handoff.
+  const [stage, setStage] = useState<"analyzing" | "matched" | "preparing">("analyzing")
 
   useEffect(() => {
-    const stepMs = 620
-    const tick = window.setInterval(() => setI((n) => Math.min(n + 1, STEPS.length - 1)), stepMs)
-    const done = window.setTimeout(onDone, stepMs * STEPS.length + 350)
-    return () => {
-      window.clearInterval(tick)
-      window.clearTimeout(done)
+    const stepMs = 680
+    const timers: number[] = []
+    // Reveal + complete each line strictly in sequence.
+    for (let n = 1; n <= STEPS.length; n++) {
+      timers.push(window.setTimeout(() => setDone(n), stepMs * n))
     }
+    const afterList = stepMs * STEPS.length
+    timers.push(window.setTimeout(() => setStage("matched"), afterList + 300))
+    timers.push(window.setTimeout(() => setStage("preparing"), afterList + 1150))
+    timers.push(window.setTimeout(onDone, afterList + 2100))
+    return () => timers.forEach((t) => window.clearTimeout(t))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const matched = stage !== "analyzing"
+
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-8 py-10 text-center">
-      <div className="relative flex size-28 items-center justify-center">
-        <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
-        <span className="absolute inset-2 rounded-full border border-primary/30" />
+    <div className="flex min-h-[70vh] flex-col items-center justify-center gap-9 py-10 text-center">
+      {/* Radar / network visualization */}
+      <div className="relative flex size-40 items-center justify-center">
+        {/* concentric range rings */}
+        <span className="absolute inset-0 rounded-full border border-primary/15" />
+        <span className="absolute inset-[14%] rounded-full border border-primary/15" />
+        <span className="absolute inset-[30%] rounded-full border border-primary/20" />
+        {/* crosshair guides */}
+        <span className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-primary/10" />
+        <span className="absolute bottom-0 top-0 left-1/2 w-px -translate-x-1/2 bg-primary/10" />
+
+        {/* node field — subtle pinging targets */}
+        <span className="absolute left-[22%] top-[30%] size-1.5 animate-ping rounded-full bg-primary/50" style={{ animationDuration: "2.2s" }} />
+        <span className="absolute right-[26%] top-[40%] size-1 animate-ping rounded-full bg-chart-4/60" style={{ animationDuration: "2.8s" }} />
+        <span className="absolute left-[38%] bottom-[24%] size-1 animate-ping rounded-full bg-primary/40" style={{ animationDuration: "3.1s" }} />
+
+        {/* rotating sweep */}
+        {!matched && (
+          <span
+            className="absolute inset-0 animate-spin rounded-full"
+            style={{
+              animationDuration: "2.4s",
+              background:
+                "conic-gradient(from 0deg, transparent 0deg, transparent 290deg, color-mix(in oklch, var(--primary) 35%, transparent) 350deg, color-mix(in oklch, var(--primary) 55%, transparent) 360deg)",
+              maskImage: "radial-gradient(circle, transparent 30%, black 31%)",
+              WebkitMaskImage: "radial-gradient(circle, transparent 30%, black 31%)",
+            }}
+          />
+        )}
+
+        {/* center icon */}
         <span
-          className="absolute inset-2 rounded-full border-2 border-transparent border-t-primary animate-spin"
-          style={{ animationDuration: "1.4s" }}
-        />
-        <Radar className="size-10 text-primary" />
+          className={cn(
+            "relative flex size-16 items-center justify-center rounded-full border transition-colors duration-500",
+            matched ? "border-chart-3/50 bg-chart-3/15 text-chart-3" : "border-primary/40 bg-primary/10 text-primary",
+          )}
+        >
+          {matched ? <Check className="size-7" /> : <Radar className="size-7 animate-pulse" />}
+        </span>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <h2 className="text-balance text-lg font-semibold leading-tight sm:text-xl">
-          SightLine is checking which markets qualify for your Path
+      {/* Headline / subheading */}
+      <div className="flex max-w-md flex-col gap-2">
+        <h2 className="text-balance text-xl font-semibold leading-tight sm:text-2xl">
+          {stage === "analyzing"
+            ? "Analyzing your trading profile\u2026"
+            : stage === "matched"
+              ? "Match found"
+              : "Preparing your personalized SightLine Path\u2026"}
         </h2>
-        <p className="text-pretty text-sm text-muted-foreground">This takes a moment — we only match what we&apos;ve tested.</p>
+        <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
+          {stage === "preparing"
+            ? "Bringing up the system that best matches how you naturally trade."
+            : "Comparing your responses against the SightLine Strategy Matrix to identify the system that best matches how you naturally trade."}
+        </p>
       </div>
 
-      <div className="flex w-full max-w-xs flex-col gap-2.5">
+      {/* Sequential checklist — a line only appears once the prior one is done */}
+      <div className="flex w-full max-w-sm flex-col gap-2.5">
         {STEPS.map((s, idx) => {
-          const state = idx < i ? "done" : idx === i ? "active" : "pending"
+          // Hidden until it's this line's turn. Active while processing, done after.
+          const visible = matched || idx <= done
+          if (!visible) return null
+          const state = matched || idx < done ? "done" : "active"
           return (
             <div
               key={s}
               className={cn(
-                "flex items-center gap-2.5 text-sm transition-colors",
-                state === "pending" && "text-muted-foreground/40",
-                state === "active" && "text-foreground",
-                state === "done" && "text-muted-foreground",
+                "flex items-center gap-2.5 text-left text-sm transition-all duration-300",
+                state === "active" ? "text-foreground" : "text-muted-foreground",
               )}
             >
               <span
                 className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-full border",
-                  state === "done" && "border-chart-3 bg-chart-3/15 text-chart-3",
-                  state === "active" && "border-primary text-primary",
-                  state === "pending" && "border-border text-transparent",
+                  "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+                  state === "done" ? "border-chart-3 bg-chart-3/15 text-chart-3" : "border-primary text-primary",
                 )}
               >
                 {state === "done" ? (
                   <Check className="size-3" />
-                ) : state === "active" ? (
+                ) : (
                   <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-                ) : null}
+                )}
               </span>
-              <span className="text-left">{s}</span>
+              <span>{s}</span>
             </div>
           )
         })}
@@ -431,10 +482,21 @@ function StrategyStep({
               </span>
             )}
           </div>
-          <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <TrendingUp className="size-3.5" />
               {TF_LABEL[p.timeframe]}
+            </span>
+            <span
+              className="inline-flex items-center gap-1"
+              title={
+                p.bias === "long"
+                  ? "This system only buys (goes long) — it never sells short."
+                  : "This system can trade in either direction — buying (long) or short-selling — depending on conditions."
+              }
+            >
+              {p.bias === "long" ? <TrendingUp className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
+              {p.bias === "long" ? "Buys only (long)" : "Trades long or short"}
             </span>
           </div>
         </div>
@@ -481,6 +543,124 @@ function StrategyStep({
       <p className="text-center text-[11px] text-muted-foreground">
         We&apos;ll show you the markets where this system met our validation standards.
       </p>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Live methodology read — evaluates the assigned methodology against this exact
+// market's latest candles (via /api/playbook-live). Deliberately NOT a "buy/sell
+// signal": it reports two separate, computed facts — the current market bias and
+// whether a qualifying entry exists yet — so it reads as monitoring, not a call.
+type MarketBias = "BULL" | "BEAR" | "NEUTRAL"
+type EntryStatus = "QUALIFIED" | "DEVELOPING" | "STAND_ASIDE"
+
+const BIAS_COPY: Record<MarketBias, { label: string; desc: string; dot: string; text: string }> = {
+  BULL: {
+    label: "Bullish Bias",
+    desc: "Based on your assigned methodology, current market conditions favor long opportunities.",
+    dot: "bg-chart-3",
+    text: "text-chart-3",
+  },
+  BEAR: {
+    label: "Bearish Bias",
+    desc: "Based on your assigned methodology, current market conditions favor short opportunities.",
+    dot: "bg-destructive",
+    text: "text-destructive",
+  },
+  NEUTRAL: {
+    label: "Neutral",
+    desc: "Current market conditions do not favor either direction.",
+    dot: "bg-muted-foreground",
+    text: "text-muted-foreground",
+  },
+}
+
+const ENTRY_COPY: Record<EntryStatus, { label: string; desc: string; dot: string; text: string }> = {
+  QUALIFIED: {
+    label: "Qualified",
+    desc: "All required criteria are currently satisfied. This market currently meets your personalized SightLine criteria.",
+    dot: "bg-chart-3",
+    text: "text-chart-3",
+  },
+  DEVELOPING: {
+    label: "Developing",
+    desc: "Your criteria are beginning to align, but a qualified entry has not yet formed. SightLine continues to monitor this market for you.",
+    dot: "bg-chart-4",
+    text: "text-chart-4",
+  },
+  STAND_ASIDE: {
+    label: "Stand Aside",
+    desc: "No qualifying setup currently exists.",
+    dot: "bg-muted-foreground",
+    text: "text-muted-foreground",
+  },
+}
+
+function LiveDirection({ pairing }: { pairing: PublicPairing }) {
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "done"; bias: MarketBias; entry: EntryStatus; enoughData: boolean }
+    | { status: "error" }
+  >({ status: "loading" })
+
+  useEffect(() => {
+    let alive = true
+    setState({ status: "loading" })
+    fetch("/api/playbook-live", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        strategyId: pairing.strategyId,
+        symbol: pairing.symbol,
+        timeframe: pairing.timeframe,
+      }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return
+        if (d?.error) setState({ status: "error" })
+        else setState({ status: "done", bias: d.bias, entry: d.entry, enoughData: d.enoughData })
+      })
+      .catch(() => {
+        if (alive) setState({ status: "error" })
+      })
+    return () => {
+      alive = false
+    }
+  }, [pairing.strategyId, pairing.symbol, pairing.timeframe])
+
+  if (state.status === "loading") {
+    return <p className="text-[10px] text-muted-foreground">Evaluating current conditions…</p>
+  }
+  if (state.status === "error") {
+    return <p className="text-[10px] text-muted-foreground">Live evaluation unavailable right now.</p>
+  }
+  if (!state.enoughData) {
+    return <p className="text-[10px] text-muted-foreground">Not enough recent data to evaluate this market yet.</p>
+  }
+
+  const bias = BIAS_COPY[state.bias]
+  const entry = ENTRY_COPY[state.entry]
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-muted/30 p-2">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Current Market Read</span>
+        <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-semibold", bias.text)}>
+          <span className={cn("size-1.5 rounded-full", bias.dot)} aria-hidden="true" />
+          {bias.label}
+        </span>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">{bias.desc}</p>
+      </div>
+      <div className="flex flex-col gap-0.5 border-t border-border/60 pt-1.5">
+        <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Entry Status</span>
+        <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-semibold", entry.text)}>
+          <span className={cn("size-1.5 rounded-full", entry.dot)} aria-hidden="true" />
+          {entry.label}
+        </span>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">{entry.desc}</p>
+      </div>
     </div>
   )
 }
@@ -625,20 +805,23 @@ function MarketPicker({
               {/* Truthful, per-ASSET numbers — only shown once this specific asset
                   is selected, since win rate / edge vary by market. */}
               {isSelected && (
-                <div className="mt-2 flex items-center gap-3 border-t border-primary/20 pt-2 font-mono text-[10px] text-muted-foreground">
-                  <span>
-                    <span className="text-foreground">{m.winRate}%</span> win
-                  </span>
-                  <span>
-                    <span className="text-chart-4">
-                      {m.expectancy > 0 ? "+" : ""}
-                      {m.expectancy}R
-                    </span>{" "}
-                    edge
-                  </span>
-                  <span>
-                    <span className="text-chart-4">{m.profitFactor.toFixed(2)}×</span> PF
-                  </span>
+                <div className="mt-2 flex flex-col gap-1.5 border-t border-primary/20 pt-2">
+                  <div className="flex items-center gap-3 font-mono text-[10px] text-muted-foreground">
+                    <span>
+                      <span className="text-foreground">{m.winRate}%</span> win
+                    </span>
+                    <span>
+                      <span className="text-chart-4">
+                        {m.expectancy > 0 ? "+" : ""}
+                        {m.expectancy}R
+                      </span>{" "}
+                      edge
+                    </span>
+                    <span>
+                      <span className="text-chart-4">{m.profitFactor.toFixed(2)}×</span> PF
+                    </span>
+                  </div>
+                  <LiveDirection pairing={m} />
                 </div>
               )}
 
