@@ -277,3 +277,21 @@ export const PLAYBOOK: PlaybookStrategy[] = [
 export const PLAYBOOK_BY_ID: Record<string, PlaybookStrategy> = Object.fromEntries(
   PLAYBOOK.map((s) => [s.id, s]),
 )
+
+// Which directions each system can actually take a trade in. This is a static
+// FACT read straight off the evaluate() branches above (not a performance claim):
+// every strategy has symmetric LONG + SHORT branches EXCEPT Pullback Buyer,
+// which only ever buys dips inside an uptrend. Used purely to tell the user
+// whether a setup will have them buying, short-selling, or possibly either.
+export type TradeBias = "both" | "long"
+
+export const STRATEGY_BIAS: Record<string, TradeBias> = {
+  "trend-rider": "both",
+  "momentum-burst": "both",
+  "pullback-buyer": "long",
+  "range-reversal": "both",
+  "breakout-hunter": "both",
+  "golden-trend": "both",
+  "supertrend-follow": "both",
+  "band-fade": "both",
+}

@@ -5,6 +5,7 @@ import Link from "next/link"
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowUpDown,
   BadgeCheck,
   Check,
   CircleAlert,
@@ -481,10 +482,21 @@ function StrategyStep({
               </span>
             )}
           </div>
-          <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <TrendingUp className="size-3.5" />
               {TF_LABEL[p.timeframe]}
+            </span>
+            <span
+              className="inline-flex items-center gap-1"
+              title={
+                p.bias === "long"
+                  ? "This system only buys (goes long) — it never sells short."
+                  : "This system can trade in either direction — buying (long) or short-selling — depending on conditions."
+              }
+            >
+              {p.bias === "long" ? <TrendingUp className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
+              {p.bias === "long" ? "Buys only (long)" : "Trades long or short"}
             </span>
           </div>
         </div>

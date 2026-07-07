@@ -1,4 +1,4 @@
-import { PLAYBOOK } from "./strategies"
+import { PLAYBOOK, STRATEGY_BIAS, type TradeBias } from "./strategies"
 import { PROVEN_PAIRINGS, type ProvenPairing, type PlaybookTimeframe } from "./mapping"
 import { oosFor, type OosVerdict } from "./validation"
 import { COINS, STOCKS } from "../coins"
@@ -27,6 +27,9 @@ export type PublicPairing = ProvenPairing & {
   assetName: string
   // "crypto" | "stock" — lets the client filter by asset class without logic.
   assetClass: "crypto" | "stock"
+  // Which way this system trades: "both" (long or short) or "long" (buys only).
+  // A static fact from the strategy logic — never a performance claim.
+  bias: TradeBias
   // Out-of-sample verdict (the gold standard). "robust" earns the survived badge.
   oosVerdict: OosVerdict | "untested"
   oosHoldoutExpectancy: number | null
@@ -64,6 +67,7 @@ function decorate(p: ProvenPairing): PublicPairing {
     strategyName: STRATEGY_NAME[p.strategyId] ?? p.strategyId,
     assetName: NAME_BY_SYMBOL[p.symbol] ?? p.symbol,
     assetClass: isCryptoSymbol(p.symbol) ? "crypto" : "stock",
+    bias: STRATEGY_BIAS[p.strategyId] ?? "both",
     oosVerdict: oos?.verdict ?? "untested",
     oosHoldoutExpectancy: oos?.holdoutExpectancy ?? null,
     oosConsistency: oos?.consistency ?? null,
