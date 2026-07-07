@@ -579,13 +579,13 @@ const BIAS_COPY: Record<MarketBias, { label: string; desc: string; dot: string; 
 const ENTRY_COPY: Record<EntryStatus, { label: string; desc: string; dot: string; text: string }> = {
   QUALIFIED: {
     label: "Qualified",
-    desc: "All required criteria are currently satisfied — this market meets your assigned methodology's criteria.",
+    desc: "All required criteria are currently satisfied. This market currently meets your personalized SightLine criteria.",
     dot: "bg-chart-3",
     text: "text-chart-3",
   },
   DEVELOPING: {
     label: "Developing",
-    desc: "Conditions are moving into alignment, but your entry criteria are not yet fully met. This market is being monitored for you.",
+    desc: "Your criteria are beginning to align, but a qualified entry has not yet formed. SightLine continues to monitor this market for you.",
     dot: "bg-chart-4",
     text: "text-chart-4",
   },
