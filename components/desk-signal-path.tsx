@@ -4,57 +4,65 @@ import useSWR from "swr"
 import Link from "next/link"
 import { Compass, Loader2, BellRing, ArrowUpRight, ArrowDownRight, Radio, RefreshCw, PauseCircle, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { TradeSignal } from "@/lib/signal"
 
 type SeriesPoint = { t: number; c: number }
 
-type SignalResponse = {
-  signal: TradeSignal
-  mode: "ai" | "indicator"
-  passesFloor: boolean
-  confidenceFloor: number
-  series?: SeriesPoint[]
-  generatedAt: string
+// The assigned strategy's OWN trade plan, returned by the live engine only when
+// a qualifying entry has actually fired. When there is no setup, this is null
+// and the chart draws no levels — nothing is invented.
+type LivePlan = {
+  direction: "LONG" | "SHORT"
+  entry: number
+  stopLoss: number
+  target: number
 }
 
-// The Desk stores a playbook timeframe ("intraday" / "swing" / "position"), but
-// the signal engine speaks the finer-grained analysis Timeframe. Map the coarse
-// playbook value onto a concrete lane the engine understands — "intraday" runs
-// the same-session 15m lane; swing/position pass straight through.
-function toAnalysisTimeframe(tf: string): string {
-  if (tf === "intraday") return "intraday15m"
-  return tf
+// The honest two-part read from /api/playbook-live: it runs the SAME logic that
+// produced the strategy's proven track record — never an AI/generic signal.
+type LiveResponse = {
+  bias: "BULL" | "BEAR" | "NEUTRAL"
+  entry: "QUALIFIED" | "DEVELOPING" | "STAND_ASIDE"
+  enoughData: boolean
+  asOf: number | null
+  isCrypto?: boolean
+  series: SeriesPoint[]
+  plan: LivePlan | null
 }
 
-// One shared fetcher — POST the coin id + timeframe to the live signal engine.
-async function fetchSignal([, coinId, timeframe]: [string, string, string]): Promise<SignalResponse> {
-  const res = await fetch("/api/signal", {
+// POST the assigned strategy id + market + timeframe to the strategy's own live
+// engine. This is the whole point of the honest Desk: what we monitor is the
+// exact strategy whose name and track record sit on this card.
+async function fetchLive([, strategyId, symbol, timeframe]: [string, string, string, string]): Promise<LiveResponse> {
+  const res = await fetch("/api/playbook-live", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ coinId, timeframe: toAnalysisTimeframe(timeframe) }),
+    body: JSON.stringify({ strategyId, symbol, timeframe }),
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
-    throw new Error(data.error ?? "Signal unavailable")
+    throw new Error(data.error ?? "Live read unavailable")
   }
   return res.json()
 }
 
 type Stage = "watching" | "lining-up" | "live"
 
-function deriveStage(data: SignalResponse | undefined): Stage {
-  if (!data) return "watching"
-  if (data.passesFloor) return "live"
-  const { signal, confidenceFloor } = data
-  const warmup = confidenceFloor * 0.6
-  if (signal.direction !== "NEUTRAL" && signal.confidence >= warmup) return "lining-up"
+// Stage is derived DIRECTLY from the strategy's own entry status — no
+// confidence thresholds or model conviction involved.
+//   QUALIFIED  -> live      (the entry trigger has fired right now)
+//   DEVELOPING -> lining-up (favored direction, trigger not yet met)
+//   else       -> watching  (nothing to act on)
+function deriveStage(data: LiveResponse | undefined): Stage {
+  if (!data || !data.enoughData) return "watching"
+  if (data.entry === "QUALIFIED") return "live"
+  if (data.entry === "DEVELOPING") return "lining-up"
   return "watching"
 }
 
-// Resolve the accent colour for the current state. LONG lives glow green,
-// SHORT lives glow red, lining-up is amber, watching is muted.
-function stageColor(stage: Stage, dir: TradeSignal["direction"] | undefined): string {
-  if (stage === "live") return dir === "SHORT" ? "var(--color-destructive)" : "var(--color-chart-3)"
+// Resolve the accent colour for the current state. A live BULL setup glows
+// green, a live BEAR setup glows red, lining-up is amber, watching is muted.
+function stageColor(stage: Stage, bias: LiveResponse["bias"] | undefined): string {
+  if (stage === "live") return bias === "BEAR" ? "var(--color-destructive)" : "var(--color-chart-3)"
   if (stage === "lining-up") return "var(--color-chart-4)"
   return "var(--color-muted-foreground)"
 }
@@ -104,8 +112,8 @@ const fmtLevel = (v: number) => v.toLocaleString(undefined, { minimumFractionDig
 const fmtAxis = (v: number) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2))
 
 // A named horizontal level with its own colour + style. The Path travels
-// through these: entry (green), resistance (red ceiling to break), target
-// (gold) and invalidation (red floor).
+// through these: entry (green), target (gold) and invalidation (red floor).
+// Every level here comes from the strategy's real plan — never fabricated.
 type Level = { key: string; label: string; value: number; color: string; style: "solid" | "dashed"; star?: boolean }
 
 const PILL_LABEL: Record<Stage, string> = {
@@ -117,19 +125,20 @@ const PILL_LABEL: Record<Stage, string> = {
 // ---------------------------------------------------------------------------
 // The SightLine Path — the one and only chart on the card. Rendered as a
 // terminal-style HUD: a glowing path that starts as grey history and turns
-// live-state colour (green LONG / red SHORT / amber approaching) as it climbs
-// through the named levels, with a bright travelling tip marking NOW, a price
-// axis down the right, and OPEN/MID/NOW along the bottom.
+// live-state colour (green LONG / red SHORT / amber approaching) as it climbs,
+// with a bright travelling tip marking NOW, a price axis down the right, and
+// OPEN/MID/NOW along the bottom. Named levels appear ONLY when the assigned
+// strategy has an actual qualifying setup (plan != null).
 // ---------------------------------------------------------------------------
 function SightLinePathChart({
   series,
   stage,
-  signal,
+  plan,
   color,
 }: {
   series: SeriesPoint[]
   stage: Stage
-  signal: TradeSignal | undefined
+  plan: LivePlan | null
   color: string
 }) {
   const W = 600
@@ -139,23 +148,15 @@ function SightLinePathChart({
   const padY = 14
 
   const closes = series.map((p) => p.c)
-  const dir = signal?.direction
+  const dir = plan?.direction
   const active = stage !== "watching"
 
-  // Build the named levels from the signal. When there are two targets we treat
-  // the nearer as RESISTANCE (a ceiling) and the further as TARGET, mirroring
-  // the reference HUD; otherwise we show the single target.
+  // Named levels straight off the strategy's own plan. No plan -> no levels.
   const levels: Level[] = []
-  if (signal) {
-    const t = signal.targets
-    const target = t.length ? t[t.length - 1].price : undefined
-    const resistance = t.length >= 2 ? t[0].price : undefined
-    if (target !== undefined)
-      levels.push({ key: "target", label: "TARGET", value: target, color: "var(--color-chart-4)", style: "dashed", star: true })
-    if (resistance !== undefined)
-      levels.push({ key: "resistance", label: "RESISTANCE", value: resistance, color: "var(--color-destructive)", style: "solid" })
-    levels.push({ key: "entry", label: "ENTRY", value: signal.entry.high, color: "var(--color-chart-3)", style: "dashed" })
-    levels.push({ key: "inval", label: "INVALIDATION", value: signal.stopLoss, color: "var(--color-destructive)", style: "dashed" })
+  if (plan) {
+    levels.push({ key: "target", label: "TARGET", value: plan.target, color: "var(--color-chart-4)", style: "dashed", star: true })
+    levels.push({ key: "entry", label: "ENTRY", value: plan.entry, color: "var(--color-chart-3)", style: "dashed" })
+    levels.push({ key: "inval", label: "INVALIDATION", value: plan.stopLoss, color: "var(--color-destructive)", style: "dashed" })
   }
 
   // Vertical domain covers the price series and every level, padded so nothing
@@ -184,7 +185,7 @@ function SightLinePathChart({
   const glowId = `pathglow-${uid}`
   const areaId = `patharea-${uid}`
 
-  const entryV = signal?.entry
+  const entryLevel = levels.find((l) => l.key === "entry")
   const targetLevel = levels.find((l) => l.key === "target")
   const ticks = niceTicks(min + range * 0.05, max - range * 0.05, 5)
 
@@ -216,31 +217,19 @@ function SightLinePathChart({
           <line key={`g${v}`} x1={0} x2={plotW} y1={y(v)} y2={y(v)} stroke="var(--color-border)" strokeWidth={1} opacity={0.4} />
         ))}
 
-        {/* target zone (entry → target) tinted, invalidation floor tinted red */}
-        {entryV && targetLevel && (
+        {/* target zone (entry -> target) tinted green, invalidation floor tinted red */}
+        {entryLevel && targetLevel && (
           <rect
             x={0}
             width={plotW}
-            y={Math.min(y(targetLevel.value), y(entryV.high))}
-            height={Math.abs(y(entryV.high) - y(targetLevel.value)) || 1}
+            y={Math.min(y(targetLevel.value), y(entryLevel.value))}
+            height={Math.abs(y(entryLevel.value) - y(targetLevel.value)) || 1}
             fill="var(--color-chart-3)"
             opacity={0.06}
           />
         )}
-        {signal && (
-          <rect x={0} width={plotW} y={y(signal.stopLoss)} height={Math.max(0, H - padY - y(signal.stopLoss))} fill="var(--color-destructive)" opacity={0.06} />
-        )}
-
-        {/* entry band */}
-        {entryV && (
-          <rect
-            x={0}
-            width={plotW}
-            y={Math.min(y(entryV.high), y(entryV.low))}
-            height={Math.abs(y(entryV.low) - y(entryV.high)) || 1}
-            fill="var(--color-chart-3)"
-            opacity={0.12}
-          />
+        {plan && (
+          <rect x={0} width={plotW} y={y(plan.stopLoss)} height={Math.max(0, H - padY - y(plan.stopLoss))} fill="var(--color-destructive)" opacity={0.06} />
         )}
 
         {/* named level lines */}
@@ -342,10 +331,9 @@ function ChartSkeleton() {
 }
 
 // Compact relative timestamp for "last update" (e.g. "just now", "3m ago").
-function formatUpdatedAt(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return ""
-  const diff = Date.now() - then
+function formatUpdatedAt(ms: number | null): string {
+  if (ms == null || Number.isNaN(ms)) return ""
+  const diff = Date.now() - ms
   const mins = Math.floor(diff / 60_000)
   if (mins < 1) return "just now"
   if (mins < 60) return `${mins}m ago`
@@ -354,42 +342,55 @@ function formatUpdatedAt(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+const BIAS_WORD: Record<LiveResponse["bias"], string> = {
+  BULL: "bullish",
+  BEAR: "bearish",
+  NEUTRAL: "neutral",
+}
+
 export function DeskSignalPath({
-  coinId,
+  strategyId,
+  symbol,
   timeframe,
   assetName,
   frozen = false,
 }: {
-  coinId: string
+  strategyId: string
+  symbol: string
   timeframe: "intraday" | "swing" | "position"
   assetName: string
   frozen?: boolean
 }) {
-  const { data, error, isLoading, isValidating, mutate } = useSWR(["signal", coinId, timeframe], fetchSignal, {
-    // Feels live without hammering the model: re-check on an interval and on focus.
-    // When the account is frozen we stop polling entirely — the last known Path
-    // stays on screen, but no new updates are fetched.
-    refreshInterval: frozen ? 0 : 90_000,
-    revalidateOnFocus: !frozen,
-    revalidateIfStale: !frozen,
-    dedupingInterval: 30_000,
-    keepPreviousData: true,
-    shouldRetryOnError: false,
-  })
+  const { data, error, isLoading, isValidating, mutate } = useSWR(
+    ["playbook-live", strategyId, symbol, timeframe],
+    fetchLive,
+    {
+      // Feels live without hammering the data source: re-check on an interval and
+      // on focus. When the account is frozen we stop polling entirely — the last
+      // known Path stays on screen, but no new updates are fetched.
+      refreshInterval: frozen ? 0 : 90_000,
+      revalidateOnFocus: !frozen,
+      revalidateIfStale: !frozen,
+      dedupingInterval: 30_000,
+      keepPreviousData: true,
+      shouldRetryOnError: false,
+    },
+  )
 
   const stage = deriveStage(data)
   const isLive = stage === "live"
-  const dir = data?.signal.direction
-  const color = stageColor(stage, dir)
+  const bias = data?.bias
+  const plan = data?.plan ?? null
+  const color = stageColor(stage, bias)
   const series = data?.series ?? []
-  const lastUpdated = data?.generatedAt ? formatUpdatedAt(data.generatedAt) : null
+  const lastUpdated = data?.asOf ? formatUpdatedAt(data.asOf) : null
 
   return (
     <div
       className={cn(
         "border-t border-border transition-colors",
         !frozen && isLive && "bg-chart-3/5",
-        !frozen && isLive && dir === "SHORT" && "bg-destructive/5",
+        !frozen && isLive && bias === "BEAR" && "bg-destructive/5",
         !frozen && stage === "lining-up" && "bg-chart-4/5",
       )}
     >
@@ -449,7 +450,7 @@ export function DeskSignalPath({
             </p>
           </div>
         ) : series.length >= 2 ? (
-          <SightLinePathChart series={series} stage={stage} signal={data?.signal} color={color} />
+          <SightLinePathChart series={series} stage={stage} plan={plan} color={color} />
         ) : (
           <ChartSkeleton />
         )}
@@ -475,13 +476,13 @@ export function DeskSignalPath({
               Upgrade <ArrowRight className="size-3.5" />
             </Link>
           </div>
-        ) : isLive && data ? (
+        ) : isLive && plan ? (
           <div
             role="status"
             aria-live="polite"
             className={cn(
               "flex items-start gap-2 rounded-lg border px-3 py-2.5",
-              dir === "SHORT"
+              plan.direction === "SHORT"
                 ? "border-destructive/30 bg-destructive/10"
                 : "border-chart-3/30 bg-chart-3/10",
             )}
@@ -489,23 +490,25 @@ export function DeskSignalPath({
             <BellRing className="mt-0.5 size-4 shrink-0" style={{ color }} />
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-xs font-semibold" style={{ color }}>
-                {dir === "LONG" ? <ArrowUpRight className="size-3.5" /> : <ArrowDownRight className="size-3.5" />}
-                {dir} setup is live on {assetName}
-                <span className="font-normal text-muted-foreground">· {data.signal.confidence}% conviction</span>
+                {plan.direction === "LONG" ? <ArrowUpRight className="size-3.5" /> : <ArrowDownRight className="size-3.5" />}
+                {plan.direction} setup is live on {assetName}
               </p>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{data.signal.summary}</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground tabular-nums">
+                Entry ~{fmtLevel(plan.entry)} · stop {fmtLevel(plan.stopLoss)} · target {fmtLevel(plan.target)}. These
+                are your strategy&apos;s own rules firing right now.
+              </p>
             </div>
           </div>
-        ) : stage === "lining-up" && data ? (
+        ) : stage === "lining-up" && bias ? (
           <p className="flex items-center gap-1.5 text-[11px] leading-relaxed text-chart-4">
             <Radio className="size-3.5 shrink-0" />
-            Conditions are lining up ({data.signal.confidence}% conviction). The Clerk alerts you the moment it crosses
-            the line.
+            Conditions are lining up ({BIAS_WORD[bias]}), but your strategy&apos;s entry trigger hasn&apos;t fired yet.
+            The Clerk alerts you the moment it does.
           </p>
         ) : (
           <p className="flex items-center gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
             <Compass className="size-3.5 shrink-0 text-primary" />
-            Your Clerk is watching {assetName}. Nothing to do until the chart lights up.
+            Your Clerk is watching {assetName}. No qualifying setup right now — nothing to do until the chart lights up.
           </p>
         )}
       </div>

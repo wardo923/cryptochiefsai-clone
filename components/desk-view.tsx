@@ -169,7 +169,13 @@ function DeskCard({ item, frozen, onRemove }: { item: DeskItem; frozen: boolean;
         <Metric label="Historical Edge" value={`${item.expectancy > 0 ? "+" : ""}${item.expectancy}R`} tone="good" />
         <Metric label="Historical Consistency" value={`${item.profitFactor.toFixed(2)}×`} tone="good" />
       </div>
-      <DeskSignalPath coinId={item.symbol} timeframe={item.timeframe} assetName={item.assetName} frozen={frozen} />
+      <DeskSignalPath
+        strategyId={item.strategyId}
+        symbol={item.symbol}
+        timeframe={item.timeframe}
+        assetName={item.assetName}
+        frozen={frozen}
+      />
     </div>
   )
 }
